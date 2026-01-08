@@ -1,0 +1,1 @@
+TSTorch is a TypeScript implementation of PyTorch, intended as a a working library and educational resource.
