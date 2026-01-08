@@ -56,8 +56,8 @@ function exp(x: number):number {
 }
 
 function logBack(x: number, d: number):number {
-    // r"If $f = log$ as above, compute $d \times f'(x)$"
-    // What does this mean?
+    // since Math.log is the natural log, derivative is 1/x
+    return d * (1 / x);
 }
 
 function inv(x: number):number {
@@ -66,10 +66,12 @@ function inv(x: number):number {
 }
 
 function invBack(x: number, d: number):number {
-    // r"If $f(x) = 1/x$ compute $d \times f'(x)$"
+    return -d * (1 / x**x);
 }
 
+// Computes the derivative of ReLU times a second arg
 function reluBack(x: number, d: number):number {
+    return d * relu(x);
     // r"If $f = relu$ compute $d \times f'(x)$"
 }
 
