@@ -11,7 +11,11 @@ import {
     eq,
     relu,
     reluBack,
-    sigmoid
+    sigmoid,
+    negList,
+    addLists,
+    sum,
+    prod
 } from "./operators.js";
 
 const DIGIT_TOLERANCE = 5;
@@ -170,3 +174,56 @@ test("other property: double negation neg(neg(x)) == x", () => {
 });
 
 // task 0.3 - higher order functions
+
+
+test("addLists elementwise matches JS", () => {
+  fc.assert(
+    fc.property(smallFloat, smallFloat, smallFloat, smallFloat, (a, b, c, d) => {
+      const [x1, x2] = addLists([a, b], [c, d]);
+      expect(x1).toBe(a + c);
+      expect(x2).toBe(b + d);
+    })
+  );
+});
+
+test("sum distributes over elementwise add: sum(ls1)+sum(ls2) == sum(addLists(ls1,ls2))", () => {
+  const len5 = fc.array(smallFloat, { minLength: 5, maxLength: 5 });
+
+  fc.assert(
+    fc.property(len5, len5, (ls1, ls2) => {
+      const left = sum(ls1) + sum(ls2);
+      const combined = addLists(ls1, ls2); // elementwise
+      const right = sum(combined);
+      assertClose(left, right, 6);
+    })
+  );
+});
+
+test("sum matches JS reduce", () => {
+  fc.assert(
+    fc.property(fc.array(smallFloat), (ls) => {
+      const jsSum = ls.reduce((acc, v) => acc + v, 0.0);
+      assertClose(sum(ls), jsSum, 6);
+    })
+  );
+});
+
+test("prod matches JS multiplication for length-3 list", () => {
+  fc.assert(
+    fc.property(smallFloat, smallFloat, smallFloat, (x, y, z) => {
+      assertClose(prod([x, y, z]), x * y * z, 6);
+    })
+  );
+});
+
+test("negList negates each element", () => {
+  fc.assert(
+    fc.property(fc.array(smallFloat), (ls) => {
+      const out = negList(ls);
+      expect(out).toHaveLength(ls.length);
+      for (let i = 0; i < ls.length; i++) {
+        expect(out[i]).toBe(-ls[i]);
+      }
+    })
+  );
+});
