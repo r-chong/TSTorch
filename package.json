@@ -1,5 +1,13 @@
 {
+  "type": "module",
   "devDependencies": {
+    "@fast-check/jest": "^2.1.1",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   }
 }
