@@ -75,10 +75,9 @@ export function reluBack(x: number, d: number):number {
     // r"If $f = relu$ compute $d \times f'(x)$"
 }
 
-type Mapexport function = (ls: number[]) => number[];
+type MapExportFn = (ls: number[]) => number[];
 
-
-export function map(fn: (num: number) => number):Mapexport function {
+export function map(fn: (num: number) => number): MapExportFn {
     return (ls: number[])=>ls.map(num => fn(num));
 }
 
@@ -86,9 +85,9 @@ export function negList(ls: number[]): number[] {
     return map(neg)(ls);
 }
 
-type ZipWithexport function = (ls1: number[], ls2: number[]) => number[];
+type ZipWithExportFn = (ls1: number[], ls2: number[]) => number[];
 
-export function zipWith(fn: (num1: number, num2: number) => number):ZipWithexport function {
+export function zipWith(fn: (num1: number, num2: number) => number):ZipWithExportFn {
     return (ls1: number[], ls2: number[]) => ls1.map((num, idx) => fn(ls1[idx]!, ls2[idx]!));
 }
 
