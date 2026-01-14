@@ -1,104 +1,102 @@
-function mul(x: number, y: number):number {
+export function mul(x: number, y: number):number {
     return x * y;
 }
 
-function id(x: number):number {
+export function id(x: number):number {
     return x;
 }
 
-function add(x: number, y: number):number {
+export function add(x: number, y: number):number {
     return x + y;
 }
 
-function neg(x: number):number {
+export function neg(x: number):number {
     return -x;
 }
 
-function lt(x: number, y: number):number {
+export function lt(x: number, y: number):number {
     return x < y? 1 : 0;
 }
 
-function eq(x: number, y: number):number {
+export function eq(x: number, y: number):number {
     return x === y ? 1 : 0;
 }
 
-function max(x: number, y: number):number {
+export function max(x: number, y: number):number {
     return x > y ? x : y;
 }
 
-function isClose(x: number, y:number):number {
+export function isClose(x: number, y:number):number {
     // "$f(x) = |x - y| < 1e-2$"
     // assumed that this meant, return 1.0 if true else 0.0
     return Math.abs(x - y) < 1e-2 ? 1 : 0;
 }
 
-function sigmoid(x: number):number {
+export function sigmoid(x: number):number {
     if (x >= 0) {
         return (1 / (1 + Math.exp(-x)));
     } else {
-        return (Math.exp(x) / (1 + Math.exp(-x)));
+        return (Math.exp(x) / (1 + Math.exp(x)));
     }
 }
 
-function relu(x: number):number {
+export function relu(x: number):number {
     return x > 0 ? x : 0;
 }
 
 const EPS = 1e-6
 
-function log(x: number):number {
+export function log(x: number):number {
     // engineering choice - never return ln(0) which is undefined
     return Math.log(x + EPS); 
 }
 
-function exp(x: number):number {
+export function exp(x: number):number {
     return Math.exp(x);
 }
 
-function logBack(x: number, d: number):number {
+export function logBack(x: number, d: number):number {
     // since Math.log is the natural log, derivative is 1/x
     return d * (1 / x);
 }
 
-function inv(x: number):number {
+export function inv(x: number):number {
     // guard this?
     return 1 / x;
 }
 
-function invBack(x: number, d: number):number {
+export function invBack(x: number, d: number):number {
     return -d * (1 / x**x);
 }
 
-// Computes the derivative of ReLU times a second arg
-function reluBack(x: number, d: number):number {
-    return d * relu(x);
-    // r"If $f = relu$ compute $d \times f'(x)$"
+export function reluBack(x: number, d: number):number {
+    // Although relu_back is d * relu(x), JavaScript differentiates -0 and 0, so we instead do:
+    return x > 0 ? d : 0;
 }
 
-type MapFunction = (ls: number[]) => number[];
+type MapExportFn = (ls: number[]) => number[];
 
-
-function map(fn: (num: number) => number):MapFunction {
+export function map(fn: (num: number) => number): MapExportFn {
     return (ls: number[])=>ls.map(num => fn(num));
 }
 
-function negList(ls: number[]): number[] {
+export function negList(ls: number[]): number[] {
     return map(neg)(ls);
 }
 
-type ZipWithFunction = (ls1: number[], ls2: number[]) => number[];
+type ZipWithExportFn = (ls1: number[], ls2: number[]) => number[];
 
-function zipWith(fn: (num1: number, num2: number) => number):ZipWithFunction {
+export function zipWith(fn: (num1: number, num2: number) => number):ZipWithExportFn {
     return (ls1: number[], ls2: number[]) => ls1.map((num, idx) => fn(ls1[idx]!, ls2[idx]!));
 }
 
-function addLists(ls1: number[], ls2: number[]): number[] {
+export function addLists(ls1: number[], ls2: number[]): number[] {
     return zipWith(add)(ls1, ls2);
 }
 
 type ReduceType = (ls: number[]) => number;
 
-function reduce(fn: (num1: number, num2: number) => number, start: number):ReduceType {
+export function reduce(fn: (num1: number, num2: number) => number, start: number):ReduceType {
     return (ls:number[]) => {
         let res: number = start;
 
@@ -107,10 +105,10 @@ function reduce(fn: (num1: number, num2: number) => number, start: number):Reduc
     }
 }
 
-function sum(ls: number[]):number {
+export function sum(ls: number[]):number {
     return reduce(add, 0)(ls);
 }
 
-function prod(ls: number[]):number {
+export function prod(ls: number[]):number {
     return reduce(mul, 1)(ls);
 }
