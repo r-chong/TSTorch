@@ -36,7 +36,7 @@ export function sigmoid(x: number):number {
     if (x >= 0) {
         return (1 / (1 + Math.exp(-x)));
     } else {
-        return (Math.exp(x) / (1 + Math.exp(-x)));
+        return (Math.exp(x) / (1 + Math.exp(x)));
     }
 }
 
@@ -69,10 +69,9 @@ export function invBack(x: number, d: number):number {
     return -d * (1 / x**x);
 }
 
-// Computes the derivative of ReLU times a second arg
 export function reluBack(x: number, d: number):number {
-    return d * relu(x);
-    // r"If $f = relu$ compute $d \times f'(x)$"
+    // Although relu_back is d * relu(x), JavaScript differentiates -0 and 0, so we instead do:
+    return x > 0 ? d : 0;
 }
 
 type MapExportFn = (ls: number[]) => number[];
