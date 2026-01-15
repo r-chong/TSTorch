@@ -1,3 +1,4 @@
+import { Context } from "./autodiff.js";
 import {
     ScalarHistory, 
     ScalarFunction,
@@ -20,11 +21,6 @@ let _varCount = 0;
 /**
  * Scalar: A number that tracks its computation history.
  * Behaves like a regular number but records operations for autodiff.
- * 
- * @param value - The value of the scalar
- * @param history - The history of the scalar
- * @param uniqueId - The unique id of the scalar
- * @param name - The name of the scalar
  */
 export class Scalar {
     readonly data: number;
@@ -50,70 +46,132 @@ export class Scalar {
         return `Scalar(${this.data})`;
     }
 
+    // ============================================================
+    // Apply Function - Handles wrapping/unwrapping for ScalarFunctions
+    // ============================================================
+
+    /**
+     * Apply a ScalarFunction to the given values.
+     * Handles unwrapping Scalars to numbers, calling forward, and wrapping the result.
+     */
+    private static applyFn(fn: typeof ScalarFunction, ...vals: ScalarLike[]): Scalar {
+        const rawVals: number[] = [];
+        const scalars: Scalar[] = [];
+
+        for (const v of vals) {
+            if (v instanceof Scalar) {
+                scalars.push(v);
+                rawVals.push(v.data);
+            } else {
+                // Raw number - wrap it as a constant Scalar
+                scalars.push(new Scalar(v));
+                rawVals.push(v);
+            }
+        }
+
+        // Create context for this operation
+        const ctx = new Context();
+
+        // Call forward with unwrapped values
+        const result = fn.forward(ctx, ...rawVals);
+
+        // Create history and wrap result
+        const history = new ScalarHistory(fn, ctx, scalars);
+        return new Scalar(result, history);
+    }
+
+    // ============================================================
+    // Arithmetic Operations
+    // ============================================================
+
     add(b: ScalarLike): Scalar {
-        return Add.apply(this, b);
+        return Scalar.applyFn(Add, this, b);
     }
 
     mul(b: ScalarLike): Scalar {
-        return Mul.apply(this, b);
+        return Scalar.applyFn(Mul, this, b);
     }
 
     div(b: ScalarLike): Scalar {
-        return Mul.apply(this, Inv.apply(b));
+        return Scalar.applyFn(Mul, this, Scalar.applyFn(Inv, b));
     }
 
     rdiv(b: ScalarLike): Scalar {
-        return Mul.apply(b, Inv.apply(this));
+        return Scalar.applyFn(Mul, b, Scalar.applyFn(Inv, this));
     }
 
     sub(b: ScalarLike): Scalar {
-        return Add.apply(this, Neg.apply(b));
+        return Scalar.applyFn(Add, this, Scalar.applyFn(Neg, b));
     }
 
     neg(): Scalar {
-        return Neg.apply(this);
+        return Scalar.applyFn(Neg, this);
     }
 
+    // ============================================================
+    // Comparison Operations
+    // ============================================================
+
     lt(b: ScalarLike): Scalar {
-        return LT.apply(this, b);
+        return Scalar.applyFn(LT, this, b);
     }
 
     eq(b: ScalarLike): Scalar {
-        return EQ.apply(this, b);
+        return Scalar.applyFn(EQ, this, b);
     }
 
     gt(b: ScalarLike): Scalar {
-        return LT.apply(b, this);
+        return Scalar.applyFn(LT, b, this);
     }
 
+    // ============================================================
+    // Mathematical Functions
+    // ============================================================
+
     log(): Scalar {
-        return Log.apply(this);
+        return Scalar.applyFn(Log, this);
     }
 
     exp(): Scalar {
-        return Exp.apply(this);
+        return Scalar.applyFn(Exp, this);
     }
 
     sigmoid(): Scalar {
-        return Sigmoid.apply(this);
+        return Scalar.applyFn(Sigmoid, this);
     }
 
     relu(): Scalar {
-        return Relu.apply(this);
+        return Scalar.applyFn(Relu, this);
     }
 
+    // ============================================================
+    // Autodiff Helpers (for Task 1.3 and 1.4)
+    // ============================================================
+
+    /**
+     * True if this scalar was created by the user (no last_fn in history)
+     */
     isLeaf(): boolean {
         return this.history !== null && this.history.lastFn === null;
     }
 
+    /**
+     * True if this is a constant (no history tracking)
+     */
     isConstant(): boolean {
         return this.history === null;
     }
 
+    /**
+     * Get the inputs that were used to compute this scalar
+     */
     get parents(): Scalar[] {
         return this.history?.inputs ?? [];
     }
 
+    /**
+     * Accumulate a derivative value (used during backward pass)
+     */
     accumulateDerivative(d: number): void {
         if (!this.isLeaf()) {
             throw new Error("Cannot accumulate derivative of a non-leaf scalar");
@@ -125,4 +183,4 @@ export class Scalar {
     }
 }
 
-export {ScalarHistory};
+export { ScalarHistory };
