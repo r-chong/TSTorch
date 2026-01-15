@@ -21,17 +21,17 @@ export class ScalarHistory {
 export abstract class ScalarFunction {
     static apply(this: typeof ScalarFunction, ...vals: ScalarLike[]): Scalar {
         // Prevent circular dependencies by importing Scalar here instead of at the top
-        const {Scalar} = require("./scalar.js");
+        const { Scalar: ScalarClass } = require("./scalar.js") as { Scalar: typeof Scalar };
 
         const rawVals: number[] = [];
         const scalars: Scalar[] = [];
-
+        
         for (const v of vals) {
-            if (v instanceof Scalar) {
+            if (v instanceof ScalarClass) {
                 scalars.push(v);
                 rawVals.push(v.data);
             } else {
-                scalars.push(new Scalar(v));
+                scalars.push(new ScalarClass(v));
                 rawVals.push(v);
             }
         }
@@ -41,7 +41,7 @@ export abstract class ScalarFunction {
         const result = this._forward(ctx, ...rawVals);
 
         const history = new ScalarHistory(this, ctx, scalars);
-        return new Scalar(result, history);
+        return new ScalarClass(result, history);
     }
 
     static _forward(ctx: Context, ...inputs: number[]): number {
