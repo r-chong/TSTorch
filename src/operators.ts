@@ -47,8 +47,7 @@ export function relu(x: number):number {
 const EPS = 1e-6
 
 export function log(x: number):number {
-    // engineering choice - never return ln(0) which is undefined
-    return Math.log(x + EPS); 
+    return Math.log(x); 
 }
 
 export function exp(x: number):number {

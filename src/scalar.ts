@@ -46,10 +46,6 @@ export class Scalar {
         return `Scalar(${this.data})`;
     }
 
-    // ============================================================
-    // Apply Function - Handles wrapping/unwrapping for ScalarFunctions
-    // ============================================================
-
     /**
      * Apply a ScalarFunction to the given values.
      * Handles unwrapping Scalars to numbers, calling forward, and wrapping the result.
@@ -63,26 +59,18 @@ export class Scalar {
                 scalars.push(v);
                 rawVals.push(v.data);
             } else {
-                // Raw number - wrap it as a constant Scalar
                 scalars.push(new Scalar(v));
                 rawVals.push(v);
             }
         }
 
-        // Create context for this operation
         const ctx = new Context();
 
-        // Call forward with unwrapped values
         const result = fn.forward(ctx, ...rawVals);
 
-        // Create history and wrap result
         const history = new ScalarHistory(fn, ctx, scalars);
         return new Scalar(result, history);
     }
-
-    // ============================================================
-    // Arithmetic Operations
-    // ============================================================
 
     add(b: ScalarLike): Scalar {
         return Scalar.applyFn(Add, this, b);
@@ -108,10 +96,6 @@ export class Scalar {
         return Scalar.applyFn(Neg, this);
     }
 
-    // ============================================================
-    // Comparison Operations
-    // ============================================================
-
     lt(b: ScalarLike): Scalar {
         return Scalar.applyFn(LT, this, b);
     }
@@ -123,10 +107,6 @@ export class Scalar {
     gt(b: ScalarLike): Scalar {
         return Scalar.applyFn(LT, b, this);
     }
-
-    // ============================================================
-    // Mathematical Functions
-    // ============================================================
 
     log(): Scalar {
         return Scalar.applyFn(Log, this);
@@ -142,44 +122,6 @@ export class Scalar {
 
     relu(): Scalar {
         return Scalar.applyFn(Relu, this);
-    }
-
-    // ============================================================
-    // Autodiff Helpers (for Task 1.3 and 1.4)
-    // ============================================================
-
-    /**
-     * True if this scalar was created by the user (no last_fn in history)
-     */
-    isLeaf(): boolean {
-        return this.history !== null && this.history.lastFn === null;
-    }
-
-    /**
-     * True if this is a constant (no history tracking)
-     */
-    isConstant(): boolean {
-        return this.history === null;
-    }
-
-    /**
-     * Get the inputs that were used to compute this scalar
-     */
-    get parents(): Scalar[] {
-        return this.history?.inputs ?? [];
-    }
-
-    /**
-     * Accumulate a derivative value (used during backward pass)
-     */
-    accumulateDerivative(d: number): void {
-        if (!this.isLeaf()) {
-            throw new Error("Cannot accumulate derivative of a non-leaf scalar");
-        }
-        if (this.derivative === null) {
-            this.derivative = 0;
-        }
-        this.derivative += d;
     }
 }
 
