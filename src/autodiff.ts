@@ -1,3 +1,5 @@
+import { Scalar } from "./scalar.js";
+
 export function centralDifference(
     f: (...args: number[]) => number,
     vals: number[],
@@ -23,4 +25,20 @@ export class Context {
     get savedValues(): number[] {
         return this._savedValues;
     }
+}
+
+export function topologicalSort(scalar: Scalar): Scalar[] {
+    const visited = new Set<Scalar>();
+    const sorted = new Array<Scalar>();
+
+    const dfs: (scalar: Scalar) => void = (scalar) => {
+        if (visited.has(scalar)) return;
+        visited.add(scalar);
+        for (const parent of scalar.parents) {
+            dfs(parent);
+        }
+        sorted.push(scalar);
+    };
+    dfs(scalar);
+    return sorted.reverse();
 }
