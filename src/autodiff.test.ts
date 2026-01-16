@@ -1,6 +1,8 @@
 import { test, fc } from '@fast-check/jest';
 import { centralDifference, Context } from "./autodiff.js";
-
+import { Scalar } from "./scalar.js"
+import { ScalarFunction, ScalarHistory } from "./scalar_functions.js"; 
+import * as operators from './operators.js';
 const DIGIT_TOLERANCE = 4;
 
 /** floats from set of small finite floats */
@@ -244,3 +246,111 @@ describe("Context", () => {
     expect(ctx.savedValues).toEqual([]);
   });
 });
+
+// ============================================================
+// Autodiff Tests
+// ============================================================
+
+
+export class Function1 extends ScalarFunction {
+    static forward(ctx: Context, x: number, y: number): number {
+        return operators.add(x, y);
+    }
+
+    static backward(ctx: Context, dOut: number): [number, number] {
+      return [dOut, dOut];
+    }
+}
+
+export class Function2 extends ScalarFunction {
+    static forward(ctx: Context, x: number, y: number): number {
+        ctx.saveForBackward(x, y);
+        return x * y + x;
+    }
+
+    static backward(ctx: Context, dOut: number): [number, number] {
+      const [x, y] = ctx.savedValues;
+      return [dOut * (y + 1), dOut * x];
+    }
+}
+
+// ============================================================
+// Chain Rule Tests
+// ============================================================
+
+describe("Chain rule", () => {
+  test("length of scalar:gradient array is 2", () => {
+    const x = new Scalar(0.0);
+    const constant = new Scalar(0.0, new ScalarHistory(Function1, new Context(), [x,x]));
+    const back = constant.chainRule(5);
+
+    expect(Array.from(back).length).toEqual(2);
+  })
+
+  test("derivative correctness", () => {
+    const v = new Scalar(0.0, new ScalarHistory());
+    const constant = new Scalar(0.0, new ScalarHistory(Function1, new Context(), [v,v]));
+    const back = constant.chainRule(5);
+    const backArr = Array.from(back);
+
+    expect(backArr.length).toEqual(2);
+
+    const [_, deriv] = backArr[0]!;
+    expect(deriv).toEqual(5);
+  })
+
+  test("constants ignored, variables get derivatives", () => {
+    const v = new Scalar(5);
+    const constant = 10;
+    const y = Scalar.apply(Function2, constant, v);
+    
+    const back = y.chainRule(5);
+    const backArr = Array.from(back);
+
+    expect(backArr.length).toEqual(2);
+
+    const [variable, deriv] = backArr[1]!;
+    expect(variable.name).toEqual(v.name);
+    expect(deriv).toEqual(5 * 10);
+  })
+
+  test("rule3: constants ignored, variables get derivatives", () => {
+    const constant = 10;
+    const v = new Scalar(5);
+
+    const y = Scalar.apply(Function2, constant, v);
+
+    const back = y.chainRule(5);
+    const backArr = Array.from(back);
+
+    expect(backArr.length).toEqual(2);
+
+    // second input is the variable `v`
+    const [variable, deriv] = backArr[1]!;
+    expect(variable.name).toEqual(v.name);
+    expect(deriv).toEqual(5 * 10);
+  });
+
+  test("rule4: two variables get correct derivatives", () => {
+    const v1 = new Scalar(5);
+    const v2 = new Scalar(10);
+
+    const y = Scalar.apply(Function2, v1, v2);
+
+    const back = y.chainRule(5);
+    const backArr = Array.from(back);
+
+    expect(backArr.length).toEqual(2);
+
+    // grad wrt v1 (x) is dOut * (y + 1)
+    let [variable, deriv] = backArr[0]!;
+    expect(variable.name).toEqual(v1.name);
+    expect(deriv).toEqual(5 * (10 + 1));
+
+    // grad wrt v2 (y) is dOut * x
+    [variable, deriv] = backArr[1]!;
+    expect(variable.name).toEqual(v2.name);
+    expect(deriv).toEqual(5 * 5);
+  });
+
+})
