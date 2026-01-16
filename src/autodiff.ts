@@ -42,3 +42,23 @@ export function topologicalSort(scalar: Scalar): Scalar[] {
     dfs(scalar);
     return sorted.reverse();
 }
+
+export function backPropagate(scalar: Scalar, dOut: number): void {
+    const sorted = topologicalSort(scalar);
+    const derivatives: Map<Scalar, number> = new Map();
+
+    derivatives.set(scalar, dOut);
+
+    for (const node of sorted) {
+        const d = derivatives.get(node);
+        if (d === undefined) continue;
+
+        if (node.isLeaf()) {
+            node.accumulateDerivative(d);
+        } else {
+            for (const [parent, grad] of node.chainRule(d)) {
+                derivatives.set(parent, (derivatives.get(parent) ?? 0) + grad);
+            }
+        }
+    }
+}
