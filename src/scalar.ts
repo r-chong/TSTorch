@@ -1,4 +1,5 @@
 import { Context } from "./autodiff.js";
+import { zip } from "./operators.js"
 import {
     ScalarHistory, 
     ScalarFunction,
@@ -147,7 +148,7 @@ export class Scalar {
         const gradients: number[] = h.lastFn.backward(h.ctx, dOut);
 
         const inputs = h.inputs as Scalar[];
-        return inputs.map((scalar, i): GradPair => [scalar, gradients[i]!]);
+        return zip(inputs, gradients);
     }
 }
 
