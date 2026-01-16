@@ -138,19 +138,15 @@ export class Scalar {
 
     chainRule(dOut: any): Iterable<GradPair> {
         const h = this.history;
-        const inputs = h?.ctx?.savedValues;
-        const lastFn = h?.lastFn;
-        const ctx = h?.ctx;
-
         if (!h) throw new Error("Missing scalar history");
         if (!h.lastFn) throw new Error("Missing lastFn in scalar history");
         if (!h.ctx) throw new Error("Missing ctx in scalar history");
         if (!h.inputs) throw new Error("Missing inputs in scalar history");
 
         // @ts-ignore as 1.4 not implemented yet
-        const gradients: number[] = lastFn.backward(ctx, dOut);
+        const gradients: number[] = h.lastFn.backward(h.ctx, dOut);
         
-        return inputs!.map((scalar, i): GradPair => [scalar, gradients[i]]);
+        return h.inputs!.map((scalar, i): GradPair => [scalar, gradients[i]]);
     }
 }
 
