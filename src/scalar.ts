@@ -126,17 +126,6 @@ export class Scalar {
         return Scalar.apply(Relu, this);
     }
 
-    /* 
-        we know how the loss changes with respect to final (dOut)
-        we compute an iterable of 
-        
-        {
-            [input, dOut * gradient],
-            [input, dOut * gradient],
-            ...
-        }
-    */
-
     chainRule(dOut: number): Iterable<GradPair> {
         const h = this.history;
         if (!h) throw new Error("Missing scalar history");
