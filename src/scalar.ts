@@ -123,6 +123,48 @@ export class Scalar {
     relu(): Scalar {
         return Scalar.applyFn(Relu, this);
     }
+
+    /* 
+        we know how the loss changes with respect to final (dOut)
+        we compute an iterable of 
+        
+        {
+            [input, dOut * gradient],
+            [input, dOut * gradient],
+            ...
+        }
+    */
+    chainRule(dOut: any): Iterable<[ScalarLike, any]> {
+        const h = this.history;
+        if (!h) {
+            throw new Error("Missing scalar history");
+        }
+        if (h && !h.lastFn) {
+            throw new Error("Missing lastFn in scalar history");
+        }
+        if (h && !h.ctx) {
+            throw new Error("Missing ctx in scalar historyh");
+        }
+
+        const savedValues = h?.ctx?.savedValues;
+        const lastFn = h?.lastFn;
+        const ctx = h?.ctx;
+        const data: (Scalar | any)[][] = [];
+
+        for (const scalar in savedValues) {
+            //@ts-ignore as we haven't implemented 1.4 yet
+            data.push([scalar, dOut * lastFn?.backward(ctx, savedValues)]);
+        }
+
+        // convert to tuple 
+        const iterableData: Iterable<[ScalarLike, any]> = 
+        data.map((item): [Scalar, any] => [item[0] as Scalar, item[1]])
+
+        // not to be confused with map in `operators.ts`
+        const res = new Map(iterableData);
+
+        return res;
+    }
 }
 
 export { ScalarHistory };
