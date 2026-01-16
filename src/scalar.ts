@@ -15,7 +15,7 @@ import {
 } from "./scalar_functions.js";
 
 export type ScalarLike = number | Scalar;
-export type GradPair = [ScalarLike, any];
+export type GradPair = [Scalar, number];
 
 let _varCount = 0;
 
@@ -51,7 +51,7 @@ export class Scalar {
      * Apply a ScalarFunction to the given values.
      * Handles unwrapping Scalars to numbers, calling forward, and wrapping the result.
      */
-    private static applyFn(fn: typeof ScalarFunction, ...vals: ScalarLike[]): Scalar {
+    static apply(fn: typeof ScalarFunction, ...vals: ScalarLike[]): Scalar {
         const rawVals: number[] = [];
         const scalars: Scalar[] = [];
 
@@ -74,55 +74,55 @@ export class Scalar {
     }
 
     add(b: ScalarLike): Scalar {
-        return Scalar.applyFn(Add, this, b);
+        return Scalar.apply(Add, this, b);
     }
 
     mul(b: ScalarLike): Scalar {
-        return Scalar.applyFn(Mul, this, b);
+        return Scalar.apply(Mul, this, b);
     }
 
     div(b: ScalarLike): Scalar {
-        return Scalar.applyFn(Mul, this, Scalar.applyFn(Inv, b));
+        return Scalar.apply(Mul, this, Scalar.apply(Inv, b));
     }
 
     rdiv(b: ScalarLike): Scalar {
-        return Scalar.applyFn(Mul, b, Scalar.applyFn(Inv, this));
+        return Scalar.apply(Mul, b, Scalar.apply(Inv, this));
     }
 
     sub(b: ScalarLike): Scalar {
-        return Scalar.applyFn(Add, this, Scalar.applyFn(Neg, b));
+        return Scalar.apply(Add, this, Scalar.apply(Neg, b));
     }
 
     neg(): Scalar {
-        return Scalar.applyFn(Neg, this);
+        return Scalar.apply(Neg, this);
     }
 
     lt(b: ScalarLike): Scalar {
-        return Scalar.applyFn(LT, this, b);
+        return Scalar.apply(LT, this, b);
     }
 
     eq(b: ScalarLike): Scalar {
-        return Scalar.applyFn(EQ, this, b);
+        return Scalar.apply(EQ, this, b);
     }
 
     gt(b: ScalarLike): Scalar {
-        return Scalar.applyFn(LT, b, this);
+        return Scalar.apply(LT, b, this);
     }
 
     log(): Scalar {
-        return Scalar.applyFn(Log, this);
+        return Scalar.apply(Log, this);
     }
 
     exp(): Scalar {
-        return Scalar.applyFn(Exp, this);
+        return Scalar.apply(Exp, this);
     }
 
     sigmoid(): Scalar {
-        return Scalar.applyFn(Sigmoid, this);
+        return Scalar.apply(Sigmoid, this);
     }
 
     relu(): Scalar {
-        return Scalar.applyFn(Relu, this);
+        return Scalar.apply(Relu, this);
     }
 
     /* 
@@ -136,7 +136,7 @@ export class Scalar {
         }
     */
 
-    chainRule(dOut: any): Iterable<GradPair> {
+    chainRule(dOut: number): Iterable<GradPair> {
         const h = this.history;
         if (!h) throw new Error("Missing scalar history");
         if (!h.lastFn) throw new Error("Missing lastFn in scalar history");
@@ -145,8 +145,9 @@ export class Scalar {
 
         // @ts-ignore as 1.4 not implemented yet
         const gradients: number[] = h.lastFn.backward(h.ctx, dOut);
-        
-        return h.inputs!.map((scalar, i): GradPair => [scalar, gradients[i]]);
+
+        const inputs = h.inputs as Scalar[];
+        return inputs.map((scalar, i): GradPair => [scalar, gradients[i]!]);
     }
 }
 
