@@ -1,24 +1,7 @@
 import { test, fc } from '@fast-check/jest';
 import { centralDifference, Context } from "./autodiff.js";
 import { Scalar } from "./scalar.js"
-import { ScalarFunction, ScalarHistory } from "./scalar_functions.js";
-import {
-    mul, 
-    add, 
-    neg, 
-    max, 
-    inv, 
-    id,
-    lt,
-    eq,
-    relu,
-    reluBack,
-    sigmoid,
-    negList,
-    addLists,
-    sum,
-    prod
-} from "./operators.js";
+import { ScalarFunction, ScalarHistory } from "./scalar_functions.js"; 
 const DIGIT_TOLERANCE = 4;
 
 /** floats from set of small finite floats */
@@ -281,12 +264,12 @@ export class Function1 extends ScalarFunction {
 export class Function2 extends ScalarFunction {
     static forward(ctx: Context, x: number, y: number): number {
         ctx.saveForBackward(x, y);
-        return add(mul(x, y), x);
+        return x * y + x;
     }
 
     static backward(ctx: Context, dOut: number): [number, number] {
       const [x, y] = ctx.savedValues;
-      return [mul(dOut, (y + 1)), mul(dOut, x)];
+      return [dOut * (y + 1), dOut * x];
     }
 }
 
