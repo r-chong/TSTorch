@@ -2,6 +2,7 @@ import { test, fc } from '@fast-check/jest';
 import { centralDifference, Context } from "./autodiff.js";
 import { Scalar } from "./scalar.js"
 import { ScalarFunction, ScalarHistory } from "./scalar_functions.js"; 
+import * as operators from './operators.js';
 const DIGIT_TOLERANCE = 4;
 
 /** floats from set of small finite floats */
@@ -253,7 +254,7 @@ describe("Context", () => {
 
 export class Function1 extends ScalarFunction {
     static forward(ctx: Context, x: number, y: number): number {
-        return add(x, y);
+        return operators.add(x, y);
     }
 
     static backward(ctx: Context, dOut: number): [number, number] {
