@@ -65,7 +65,7 @@ export function inv(x: number):number {
 }
 
 export function invBack(x: number, d: number):number {
-    return -d * (1 / x**x);
+    return -d / (x * x);
 }
 
 export function reluBack(x: number, d: number):number {
