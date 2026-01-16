@@ -89,6 +89,11 @@ export function zipWith(fn: (num1: number, num2: number) => number):ZipWithExpor
     return (ls1: number[], ls2: number[]) => ls1.map((num, idx) => fn(ls1[idx]!, ls2[idx]!));
 }
 
+// generic zipping function
+export function zip<A, B>(arr1: A[], arr2: B[]): [A, B][] {
+    return arr1.map((x, i) => [x, arr2[i]!]);
+}
+
 export function addLists(ls1: number[], ls2: number[]): number[] {
     return zipWith(add)(ls1, ls2);
 }

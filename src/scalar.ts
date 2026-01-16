@@ -15,6 +15,7 @@ import {
 } from "./scalar_functions.js";
 
 export type ScalarLike = number | Scalar;
+export type GradPair = [ScalarLike, any];
 
 let _varCount = 0;
 
@@ -134,36 +135,22 @@ export class Scalar {
             ...
         }
     */
-    chainRule(dOut: any): Iterable<[ScalarLike, any]> {
-        const h = this.history;
-        if (!h) {
-            throw new Error("Missing scalar history");
-        }
-        if (h && !h.lastFn) {
-            throw new Error("Missing lastFn in scalar history");
-        }
-        if (h && !h.ctx) {
-            throw new Error("Missing ctx in scalar historyh");
-        }
 
-        const savedValues = h?.ctx?.savedValues;
+    chainRule(dOut: any): Iterable<GradPair> {
+        const h = this.history;
+        const inputs = h?.ctx?.savedValues;
         const lastFn = h?.lastFn;
         const ctx = h?.ctx;
-        const data: (Scalar | any)[][] = [];
 
-        for (const scalar in savedValues) {
-            //@ts-ignore as we haven't implemented 1.4 yet
-            data.push([scalar, dOut * lastFn?.backward(ctx, savedValues)]);
-        }
+        if (!h) throw new Error("Missing scalar history");
+        if (!h.lastFn) throw new Error("Missing lastFn in scalar history");
+        if (!h.ctx) throw new Error("Missing ctx in scalar history");
+        if (!h.inputs) throw new Error("Missing inputs in scalar history");
 
-        // convert to tuple 
-        const iterableData: Iterable<[ScalarLike, any]> = 
-        data.map((item): [Scalar, any] => [item[0] as Scalar, item[1]])
-
-        // not to be confused with map in `operators.ts`
-        const res = new Map(iterableData);
-
-        return res;
+        // @ts-ignore as 1.4 not implemented yet
+        const gradients: number[] = lastFn.backward(ctx, dOut);
+        
+        return inputs!.map((scalar, i): GradPair => [scalar, gradients[i]]);
     }
 }
 
