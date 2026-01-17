@@ -139,6 +139,28 @@ export class Scalar {
         const inputs = h.inputs as Scalar[];
         return zip(inputs, gradients);
     }
+
+    isLeaf(): boolean {
+        return !this.history?.lastFn;
+    }
+
+    isConstant(): boolean {
+        return !this.history;
+    }
+
+    get parents(): Scalar[] {
+        return this.history?.inputs ?? [];
+    }
+
+    accumulateDerivative(d: number): void {
+        if (!this.isLeaf()) {
+            throw new Error("Cannot accumulate derivative of a non-leaf scalar");
+        }
+        if (this.derivative === null) {
+            this.derivative = 0;
+        }
+        this.derivative += d;
+    }
 }
 
 export { ScalarHistory };
