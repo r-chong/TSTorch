@@ -1,0 +1,11 @@
+{
+  "name": "demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tstorch": "workspace:*"
+  },  
+  "scripts": {
+    "start": "node index.ts"
+  }
+}
