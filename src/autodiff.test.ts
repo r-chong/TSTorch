@@ -1,5 +1,5 @@
 import { test, fc } from '@fast-check/jest';
-import { centralDifference, Context } from "./autodiff.js";
+import { centralDifference, Context, topologicalSort, backPropagate } from "./autodiff.js";
 import { Scalar } from "./scalar.js"
 import { ScalarFunction, ScalarHistory } from "./scalar_functions.js"; 
 import * as operators from './operators.js';
@@ -354,3 +354,304 @@ describe("Chain rule", () => {
   });
 
 })
+
+// ============================================================
+// Topological Sort Tests (task1_4)
+// ============================================================
+
+describe("topologicalSort", () => {
+  test("single leaf node returns just that node", () => {
+    const x = new Scalar(5);
+    const sorted = topologicalSort(x);
+    
+    expect(sorted.length).toEqual(1);
+    expect(sorted[0]).toBe(x);
+  });
+
+  test("simple operation returns output before inputs", () => {
+    const x = new Scalar(3);
+    const y = new Scalar(4);
+    const z = x.mul(y);
+    
+    const sorted = topologicalSort(z);
+    
+    // z should come before x and y
+    expect(sorted.length).toEqual(3);
+    expect(sorted[0]).toBe(z);
+    // x and y should both be in the list after z
+    expect(sorted.slice(1)).toContain(x);
+    expect(sorted.slice(1)).toContain(y);
+  });
+
+  test("chain of operations has correct order", () => {
+    const x = new Scalar(2);
+    const y = x.mul(3);      // y = x * 3
+    const z = y.add(1);      // z = y + 1
+    
+    const sorted = topologicalSort(z);
+    
+    // z should come first, then y, then leaves
+    const zIdx = sorted.indexOf(z);
+    const yIdx = sorted.indexOf(y);
+    const xIdx = sorted.indexOf(x);
+    
+    expect(zIdx).toBeLessThan(yIdx);
+    expect(yIdx).toBeLessThan(xIdx);
+  });
+
+  test("variable used multiple times appears only once", () => {
+    const x = new Scalar(3);
+    const z = x.mul(x);  // x * x
+    
+    const sorted = topologicalSort(z);
+    
+    // x should appear exactly once
+    const xCount = sorted.filter(s => s === x).length;
+    expect(xCount).toEqual(1);
+    expect(sorted.length).toEqual(2);  // z and x
+  });
+
+  test("diamond dependency graph", () => {
+    const x = new Scalar(2);
+    const a = x.mul(3);      // a = x * 3
+    const b = x.add(1);      // b = x + 1
+    const c = a.mul(b);      // c = a * b
+    
+    const sorted = topologicalSort(c);
+    
+    // c should come first
+    expect(sorted[0]).toBe(c);
+    
+    // a and b should come before x
+    const aIdx = sorted.indexOf(a);
+    const bIdx = sorted.indexOf(b);
+    const xIdx = sorted.indexOf(x);
+    
+    expect(aIdx).toBeLessThan(xIdx);
+    expect(bIdx).toBeLessThan(xIdx);
+  });
+});
+
+// ============================================================
+// Backpropagate Tests (task1_4)
+// ============================================================
+
+describe("backPropagate", () => {
+  test("simple multiplication: z = x * y", () => {
+    const x = new Scalar(3);
+    const y = new Scalar(4);
+    const z = x.mul(y);
+    
+    backPropagate(z, 1.0);
+    
+    // dz/dx = y = 4
+    expect(x.derivative).toBeCloseTo(4, 5);
+    // dz/dy = x = 3
+    expect(y.derivative).toBeCloseTo(3, 5);
+  });
+
+  test("simple addition: z = x + y", () => {
+    const x = new Scalar(3);
+    const y = new Scalar(4);
+    const z = x.add(y);
+    
+    backPropagate(z, 1.0);
+    
+    // dz/dx = 1
+    expect(x.derivative).toBeCloseTo(1, 5);
+    // dz/dy = 1
+    expect(y.derivative).toBeCloseTo(1, 5);
+  });
+
+  test("variable used twice: z = x * x (should accumulate)", () => {
+    const x = new Scalar(3);
+    const z = x.mul(x);
+    
+    backPropagate(z, 1.0);
+    
+    // d(x^2)/dx = 2x = 6
+    expect(x.derivative).toBeCloseTo(6, 5);
+  });
+
+  test("chain: z = (x * y) + x", () => {
+    const x = new Scalar(3);
+    const y = new Scalar(4);
+    const z = x.mul(y).add(x);
+    
+    backPropagate(z, 1.0);
+    
+    // z = x*y + x, dz/dx = y + 1 = 5
+    expect(x.derivative).toBeCloseTo(5, 5);
+    // dz/dy = x = 3
+    expect(y.derivative).toBeCloseTo(3, 5);
+  });
+
+  test("log function: z = log(x)", () => {
+    const x = new Scalar(2);
+    const z = x.log();
+    
+    backPropagate(z, 1.0);
+    
+    // d(log(x))/dx = 1/x = 0.5
+    expect(x.derivative).toBeCloseTo(0.5, 5);
+  });
+
+  test("exp function: z = exp(x)", () => {
+    const x = new Scalar(1);
+    const z = x.exp();
+    
+    backPropagate(z, 1.0);
+    
+    // d(e^x)/dx = e^x = e
+    expect(x.derivative).toBeCloseTo(Math.E, 5);
+  });
+
+  test("sigmoid function: z = sigmoid(x)", () => {
+    const x = new Scalar(0);
+    const z = x.sigmoid();
+    
+    backPropagate(z, 1.0);
+    
+    // sigmoid(0) = 0.5, d(sigmoid)/dx = sigmoid * (1 - sigmoid) = 0.25
+    expect(x.derivative).toBeCloseTo(0.25, 5);
+  });
+
+  test("relu function: z = relu(x) for positive x", () => {
+    const x = new Scalar(5);
+    const z = x.relu();
+    
+    backPropagate(z, 1.0);
+    
+    // d(relu(x))/dx = 1 for x > 0
+    expect(x.derivative).toBeCloseTo(1, 5);
+  });
+
+  test("relu function: z = relu(x) for negative x", () => {
+    const x = new Scalar(-5);
+    const z = x.relu();
+    
+    backPropagate(z, 1.0);
+    
+    // d(relu(x))/dx = 0 for x < 0
+    expect(x.derivative).toBeCloseTo(0, 5);
+  });
+
+  test("negation: z = -x", () => {
+    const x = new Scalar(3);
+    const z = x.neg();
+    
+    backPropagate(z, 1.0);
+    
+    // d(-x)/dx = -1
+    expect(x.derivative).toBeCloseTo(-1, 5);
+  });
+
+  test("division: z = x / y", () => {
+    const x = new Scalar(6);
+    const y = new Scalar(2);
+    const z = x.div(y);
+    
+    backPropagate(z, 1.0);
+    
+    // d(x/y)/dx = 1/y = 0.5
+    expect(x.derivative).toBeCloseTo(0.5, 5);
+    // d(x/y)/dy = -x/y^2 = -6/4 = -1.5
+    expect(y.derivative).toBeCloseTo(-1.5, 5);
+  });
+
+  test("complex expression matches numerical gradient", () => {
+    // f(x, y) = x * y + x^2
+    const f = (xVal: number, yVal: number) => {
+      const x = new Scalar(xVal);
+      const y = new Scalar(yVal);
+      return x.mul(y).add(x.mul(x));
+    };
+    
+    const xVal = 3;
+    const yVal = 4;
+    
+    // Compute analytical gradients
+    const x = new Scalar(xVal);
+    const y = new Scalar(yVal);
+    const z = x.mul(y).add(x.mul(x));
+    backPropagate(z, 1.0);
+    
+    // Compute numerical gradients
+    const numericFn = (a: number, b: number) => a * b + a * a;
+    const numDx = centralDifference(numericFn, [xVal, yVal], 0);
+    const numDy = centralDifference(numericFn, [xVal, yVal], 1);
+    
+    expect(x.derivative).toBeCloseTo(numDx, 4);
+    expect(y.derivative).toBeCloseTo(numDy, 4);
+  });
+
+  test("propagates non-1.0 derivative correctly", () => {
+    const x = new Scalar(3);
+    const y = new Scalar(4);
+    const z = x.mul(y);
+    
+    backPropagate(z, 2.0);  // Start with derivative of 2
+    
+    // dz/dx = y * 2 = 8
+    expect(x.derivative).toBeCloseTo(8, 5);
+    // dz/dy = x * 2 = 6
+    expect(y.derivative).toBeCloseTo(6, 5);
+  });
+});
+
+// ============================================================
+// Gradient Comparison with Central Difference (task1_4)
+// ============================================================
+
+describe("Gradient correctness via central difference", () => {
+  test.prop([positiveFloat])("log gradient matches numerical", (xVal) => {
+    const x = new Scalar(xVal);
+    const z = x.log();
+    backPropagate(z, 1.0);
+    
+    const numerical = centralDifference((a) => Math.log(a), [xVal], 0);
+    assertClose(x.derivative!, numerical, 4);
+  });
+
+  test.prop([fc.double({ noNaN: true, min: -5, max: 5 })])("exp gradient matches numerical", (xVal) => {
+    const x = new Scalar(xVal);
+    const z = x.exp();
+    backPropagate(z, 1.0);
+    
+    const numerical = centralDifference((a) => Math.exp(a), [xVal], 0);
+    assertClose(x.derivative!, numerical, 4);
+  });
+
+  test.prop([smallFloat])("sigmoid gradient matches numerical", (xVal) => {
+    const sigmoid = (a: number) => 1 / (1 + Math.exp(-a));
+    
+    const x = new Scalar(xVal);
+    const z = x.sigmoid();
+    backPropagate(z, 1.0);
+    
+    const numerical = centralDifference(sigmoid, [xVal], 0);
+    assertClose(x.derivative!, numerical, 4);
+  });
+
+  test.prop([smallFloat, smallFloat])("mul gradient matches numerical", (xVal, yVal) => {
+    const x = new Scalar(xVal);
+    const y = new Scalar(yVal);
+    const z = x.mul(y);
+    backPropagate(z, 1.0);
+    
+    const fn = (a: number, b: number) => a * b;
+    assertClose(x.derivative!, centralDifference(fn, [xVal, yVal], 0), 4);
+    assertClose(y.derivative!, centralDifference(fn, [xVal, yVal], 1), 4);
+  });
+
+  test.prop([smallFloat, smallFloat])("add gradient matches numerical", (xVal, yVal) => {
+    const x = new Scalar(xVal);
+    const y = new Scalar(yVal);
+    const z = x.add(y);
+    backPropagate(z, 1.0);
+    
+    const fn = (a: number, b: number) => a + b;
+    assertClose(x.derivative!, centralDifference(fn, [xVal, yVal], 0), 4);
+    assertClose(y.derivative!, centralDifference(fn, [xVal, yVal], 1), 4);
+  });
+});
