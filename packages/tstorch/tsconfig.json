@@ -42,6 +42,7 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
   },
+  "include": ["src/**/*.ts"],
    "exclude": [
     "**/*.test.ts",
     "**/*.test.tsx",
