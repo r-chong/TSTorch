@@ -82,4 +82,4 @@ export const datasets: Record<string, (N: number) => Graph> = {
   Xor: xor,
   Circle: circle,
   Spiral: spiral,
-};
+};  
