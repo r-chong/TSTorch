@@ -1,5 +1,6 @@
 // fc generates suites of inputs
 import { test, fc } from '@fast-check/jest';
+import { describe, expect } from '@jest/globals';
 import { Scalar } from "./scalar.js";
 
 const DIGIT_TOLERANCE = 5;

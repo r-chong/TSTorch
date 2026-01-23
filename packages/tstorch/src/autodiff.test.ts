@@ -1,4 +1,5 @@
 import { test, fc } from '@fast-check/jest';
+import { describe, expect } from '@jest/globals';
 import { centralDifference, Context, topologicalSort, backPropagate } from "./autodiff.js";
 import { Scalar } from "./scalar.js"
 import { ScalarFunction, ScalarHistory } from "./scalar_functions.js"; 

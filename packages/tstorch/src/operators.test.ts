@@ -1,5 +1,6 @@
 // fc generates suites of inputs
 import { test, fc } from '@fast-check/jest';
+import { describe, expect } from '@jest/globals';
 import {
     mul, 
     add, 
