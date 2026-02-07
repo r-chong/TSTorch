@@ -392,3 +392,12 @@ export function View(newShape: Shape): typeof TensorFunction {
         }
     };
 }
+
+export class Contiguous extends TensorFunction {
+    static forward(ctx: TensorContext, a: Tensor): Tensor {
+        return new Tensor(contiguous(a.data));
+    }
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        return [gradOutput];
+    }
+}

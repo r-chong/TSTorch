@@ -27,6 +27,7 @@ import {
     Sum as SumFn,
     Permute as PermuteFn,
     View as ViewFn,
+    Contiguous as ContiguousFn,
 } from './tensor_functions.js';
 import { backPropagateTensor } from './autodiff.js';
 
@@ -226,12 +227,14 @@ export class Tensor {
 
     sum(dim?: number): Tensor {
         if (dim === undefined) {
-            // Sum all dimensions
-            let result: Tensor = this;
-            for (let d = 0; d < this.dims; d++) {
-                result = Tensor.apply(SumFn(0), result);
+            if (this.dims === 0) {
+                return this;
             }
-            return result;
+            let result: Tensor = this;
+            for (let d = result.dims - 1; d >= 0; d--) {
+                result = Tensor.apply(SumFn(d), result);
+            }
+            return result.view(1);
         }
 
         if (dim < 0 || dim >= this.dims) {
@@ -292,7 +295,7 @@ export class Tensor {
     }
 
     contiguous(): Tensor {
-        return new Tensor(tensorFunctions.contiguous(this._data));
+        return Tensor.apply(ContiguousFn, this);
     }
 
     zero_grad_():void {
