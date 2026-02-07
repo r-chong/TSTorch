@@ -18,7 +18,226 @@ export class Tensor {
         this._data = data;
     }
 
-    static tensor(values: number | number[])
+    static tensor(values: any, shape?: Shape): Tensor {
+        if (typeof values === 'number') {
+            const storage = new Float64Array([values]);
+            return new Tensor(new TensorData(storage, []));
+        }
+
+        const { flat, inferredShape } = flattenArray(values);
+        const finalShape = shape ?? inferredShape;
+
+        if (shapeProduct(finalShape) != flat.length) {
+            throw new Error(
+                `Shape is incompatible with flat array size`
+            );
+        }
+
+        const storage = new Float64Array(flat);
+        return new Tensor(new TensorData(storage, finalShape));
+    }
+
+    static zeros(shape: Shape) : Tensor {
+        return new Tensor(TensorData.zeros(shape));
+    }
+
+    static ones(shape: Shape): Tensor {
+        const size = shapeProduct(shape);
+        const storage = new Float64Array(size).fill(1);
+        return new Tensor(new TensorData(storage, shape));
+    }
+
+    static rand(shape: Shape): Tensor {
+        const size = shapeProduct(shape);
+        const storage = new Float64Array(size);
+        for (let i = 0; i < size; i++) {
+            storage[i] = Math.random();
+        }
+        return new Tensor(new TensorData(storage, shape));
+    }
+
+    get size(): number {
+        return this._data.size;
+    }
+
+    get dims(): number {
+        return this._data.dims;
+    }
+
+    get shape(): Shape {
+        return this._data.shape;
+    }
+
+    get data(): TensorData {
+        return this._data;
+    }
+
+    private _ensureTensor(value: number | Tensor) : Tensor {
+        if (value instanceof Tensor) {
+            return value;
+        }
+
+        return Tensor.tensor(value);
+    }
+
+    neg(): Tensor {
+        return new Tensor(tensorFunctions.neg(this._data));
+    }
+
+    sigmoid(): Tensor {
+        return new Tensor(tensorFunctions.sigmoid(this._data));
+    }
+
+    relu(): Tensor {
+        return new Tensor(tensorFunctions.relu(this._data));
+    }
+
+    log(): Tensor {
+        return new Tensor(tensorFunctions.log(this._data));
+    }
+
+    exp(): Tensor {
+        return new Tensor(tensorFunctions.exp(this._data));
+    }
+
+    inv(): Tensor {
+        return new Tensor(tensorFunctions.inv(this._data));
+    }
+
+    add(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        return new Tensor(tensorFunctions.add(this._data, b._data));
+    }
+
+    sub(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        // a - b = a + (-b)
+        return new Tensor(tensorFunctions.add(this._data, tensorFunctions.neg(b._data)));
+    }
+
+    mul(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        return new Tensor(tensorFunctions.mul(this._data, b._data));
+    }
+
+    lt(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        return new Tensor(tensorFunctions.lt(this._data, b._data));
+    }
+
+    eq(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        return new Tensor(tensorFunctions.eq(this._data, b._data));
+    }
+
+    gt(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        // a > b is equivalent to b < a
+        return new Tensor(tensorFunctions.lt(b._data, this._data));
+    }
+
+    is_close(other: number | Tensor): Tensor {
+        const b = this._ensureTensor(other);
+        return new Tensor(tensorFunctions.isClose(this._data, b._data));
+    }
+
+    sum(dim?: number): Tensor {
+        if (dim === undefined) {
+            let result = this._data;
+            for (let d = 0; d < result.dims; d++) {
+                result = tensorFunctions.sum(result, d);
+            }
+            return new Tensor(result);
+        }
+
+        if (dim < 0 || dim >= this.dims) {
+            throw new Error(`Invalid dimension ${dim} for tensor with ${this.dims} dimensions`);
+        }
+
+        return new Tensor(tensorFunctions.sum(this._data, dim));
+    }
+
+    mean(dim?: number): Tensor {
+        if (dim === undefined) {
+            const s = this.sum();
+            const count = this.size;
+            return s.mul(1 / count);
+        }
+
+        if (dim < 0 || dim >= this.dims) {
+            throw new Error(`Invalid dimension ${dim} for tensor with ${this.dims} dimensions`);
+        }
+
+        const s = tensorFunctions.sum(this._data, dim);
+        const count = this._data.shape[dim]!;
+        const divFn = (x: number) => x / count;
+        const out = TensorData.zeros(s.shape);
+        const { tensorMap } = require('./tensor_ops.js');
+        const mapFn = tensorMap(divFn);
+        mapFn(out.storage, out.shape, out.strides, s.storage, s.shape, s.strides);
+        return new Tensor(out);
+    }
+
+    all(dim?: number): Tensor {
+        if (dim === undefined) {
+            let result = this._data;
+            for (let d = 0; d < result.dims; d++) {
+                result = tensorFunctions.prod(result, d);
+            }
+            const val = result.storage[0]! !== 0 ? 1 : 0;
+            return Tensor.tensor(val);
+        }
+
+        const p = tensorFunctions.prod(this._data, dim);
+        const toBoolean = (x: number) => (x !== 0 ? 1 : 0);
+        const out = TensorData.zeros(p.shape);
+        const { tensorMap } = require('./tensor_ops.js');
+        const mapFn = tensorMap(toBoolean);
+        mapFn(out.storage, out.shape, out.strides, p.storage, p.shape, p.strides);
+        return new Tensor(out);
+    }
+
+    permute(...order: number[]): Tensor {
+        return new Tensor(tensorFunctions.permute(this._data, order));
+    }
+
+    view(...shape: number[]): Tensor {
+        return new Tensor(tensorFunctions.view(this._data, shape));
+    }
+
+    contiguous(): Tensor {
+        return new Tensor(tensorFunctions.contiguous(this._data));
+    }
+
+    zero_grad_():void {
+        this.grad = null;
+    }
+
+    get(idx: number[]): number {
+        return this._data.get(idx);
+    }
+
+    set(idx: number[], value: number): void {
+        this._data.set(idx, value);
+    }
+
+    item(): number {
+        if (this.size !== 1) {
+            throw new Error('item() only works for tensors with exactly one element');
+        }
+        return this._data.storage[0]!;
+    }
+
+    toArray(): any {
+        return buildNestedArray(this._data, 0, new Array(this.dims).fill(0));
+    }
+
+    toString(): string {
+        if (this.dims === 0) {
+            return `Tensor(${this._data.storage[0]})`;
+        }
+        return `Tensor(${JSON.stringify(this.toArray())}, shape=[${this.shape.join(', ')}])`;
+    }
 }
 
 function flattenArray(arr: any): { flat: number[]; inferredShape: number[] } {
