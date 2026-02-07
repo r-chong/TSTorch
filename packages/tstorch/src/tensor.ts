@@ -10,7 +10,24 @@ import {
 } from './tensor_data.js'
 import * as tensorFunctions from './tensor_functions.js'
 import { tensorMap } from './tensor_ops.js'
-import { TensorContext, TensorHistory, TensorFunction } from './tensor_functions.js';
+import { 
+    TensorContext, 
+    TensorHistory, 
+    TensorFunction,
+    Neg as NegFn,
+    Sigmoid as SigmoidFn,
+    ReLU as ReLUFn,
+    Log as LogFn,
+    Exp as ExpFn,
+    Inv as InvFn,
+    Add as AddFn,
+    Mul as MulFn,
+    LT as LTFn,
+    EQ as EQFn,
+    Sum as SumFn,
+    Permute as PermuteFn,
+    View as ViewFn,
+} from './tensor_functions.js';
 import { backPropagateTensor } from './autodiff.js';
 
 export type TensorLike = number | Tensor;
@@ -144,59 +161,54 @@ export class Tensor {
     }
 
     neg(): Tensor {
-        return new Tensor(tensorFunctions.neg(this._data));
+        return Tensor.apply(NegFn, this);
     }
 
     sigmoid(): Tensor {
-        return new Tensor(tensorFunctions.sigmoid(this._data));
+        return Tensor.apply(SigmoidFn, this);
     }
 
     relu(): Tensor {
-        return new Tensor(tensorFunctions.relu(this._data));
+        return Tensor.apply(ReLUFn, this);
     }
 
     log(): Tensor {
-        return new Tensor(tensorFunctions.log(this._data));
+        return Tensor.apply(LogFn, this);
     }
 
     exp(): Tensor {
-        return new Tensor(tensorFunctions.exp(this._data));
+        return Tensor.apply(ExpFn, this);
     }
 
     inv(): Tensor {
-        return new Tensor(tensorFunctions.inv(this._data));
+        return Tensor.apply(InvFn, this);
     }
 
     add(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
-        return new Tensor(tensorFunctions.add(this._data, b._data));
+        return Tensor.apply(AddFn, this, this._ensureTensor(other));
     }
 
     sub(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
         // a - b = a + (-b)
-        return new Tensor(tensorFunctions.add(this._data, tensorFunctions.neg(b._data)));
+        return this.add(this._ensureTensor(other).neg());
     }
 
     mul(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
-        return new Tensor(tensorFunctions.mul(this._data, b._data));
+        return Tensor.apply(MulFn, this, this._ensureTensor(other));
     }
 
     lt(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
-        return new Tensor(tensorFunctions.lt(this._data, b._data));
+        return Tensor.apply(LTFn, this, this._ensureTensor(other));
     }
 
     eq(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
-        return new Tensor(tensorFunctions.eq(this._data, b._data));
+        return Tensor.apply(EQFn, this, this._ensureTensor(other));
     }
 
     gt(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
         // a > b is equivalent to b < a
-        return new Tensor(tensorFunctions.lt(b._data, this._data));
+        const b = this._ensureTensor(other);
+        return Tensor.apply(LTFn, b, this);
     }
 
     is_close(other: number | Tensor): Tensor {
@@ -214,18 +226,19 @@ export class Tensor {
 
     sum(dim?: number): Tensor {
         if (dim === undefined) {
-            let result = this._data;
-            for (let d = 0; d < result.dims; d++) {
-                result = tensorFunctions.sum(result, d);
+            // Sum all dimensions
+            let result: Tensor = this;
+            for (let d = 0; d < this.dims; d++) {
+                result = Tensor.apply(SumFn(0), result);
             }
-            return new Tensor(result);
+            return result;
         }
 
         if (dim < 0 || dim >= this.dims) {
             throw new Error(`Invalid dimension ${dim} for tensor with ${this.dims} dimensions`);
         }
 
-        return new Tensor(tensorFunctions.sum(this._data, dim));
+        return Tensor.apply(SumFn(dim), this);
     }
 
     mean(dim?: number): Tensor {
@@ -271,11 +284,11 @@ export class Tensor {
     }
 
     permute(...order: number[]): Tensor {
-        return new Tensor(tensorFunctions.permute(this._data, order));
+        return Tensor.apply(PermuteFn(order), this);
     }
 
     view(...shape: number[]): Tensor {
-        return new Tensor(tensorFunctions.view(this._data, shape));
+        return Tensor.apply(ViewFn(shape), this);
     }
 
     contiguous(): Tensor {

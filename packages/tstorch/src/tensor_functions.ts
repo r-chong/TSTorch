@@ -319,6 +319,20 @@ export class Add extends TensorFunction {
     }
 }
 
+export class Mul extends TensorFunction {
+    static forward(ctx: TensorContext, a: Tensor, b: Tensor): Tensor {
+        ctx.saveForBackward(a, b);
+        return new Tensor(mul(a.data, b.data));
+    }
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        const [a, b] = ctx.savedTensors;
+        return [
+            unbroadcast(gradOutput.mul(b!), a!.shape),
+            unbroadcast(gradOutput.mul(a!), b!.shape)
+        ];
+    }
+}
+
 export class LT extends TensorFunction {
     static forward(ctx: TensorContext, a: Tensor, b: Tensor): Tensor {
         return new Tensor(lt(a.data, b.data));
