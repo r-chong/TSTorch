@@ -1167,4 +1167,408 @@ describe("Tensor Autograd - Task 2.4", () => {
       expect(b.grad!.shape).toEqual(b.shape);
     });
   });
+
+  describe("Unbroadcast edge cases", () => {
+    test("unbroadcast to scalar - add", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);  // shape [2, 2]
+      const b = Tensor.tensor(5);                 // scalar, shape []
+      const c = a.add(b).sum();
+      c.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+      expect(b.grad!.shape).toEqual([]);
+      // b was broadcast to all 4 elements, so gradient should be sum = 4
+      expect(b.grad!.get([])).toBe(4);
+    });
+
+    test("unbroadcast to scalar - mul", () => {
+      const a = Tensor.tensor([1, 2, 3]);  // shape [3]
+      const b = Tensor.tensor(2);          // scalar
+      const c = a.mul(b).sum();
+      c.backward();
+      
+      expect(b.grad!.shape).toEqual([]);
+      // d(sum(a*b))/db = sum(a) = 1+2+3 = 6
+      expect(b.grad!.get([])).toBe(6);
+    });
+
+    test("unbroadcast from 3D to 1D", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = Tensor.tensor([10, 20]);  // shape [2]
+      const c = a.add(b).sum();
+      c.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2]);
+      expect(b.grad!.shape).toEqual([2]);
+      // b is broadcast along dims 0 and 1, so gradient sums along those dims
+      // Each element of b appears 4 times (2*2)
+      expect(b.grad!.toArray()).toEqual([4, 4]);
+    });
+
+    test("unbroadcast from 3D to scalar", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = Tensor.tensor(1);  // scalar
+      const c = a.mul(b).sum();
+      c.backward();
+      
+      expect(b.grad!.shape).toEqual([]);
+      // d(sum(a*b))/db = sum(a) = 1+2+3+4+5+6+7+8 = 36
+      expect(b.grad!.get([])).toBe(36);
+    });
+
+    test("unbroadcast with size-1 dimensions", () => {
+      const a = Tensor.tensor([[1, 2, 3]]);       // shape [1, 3]
+      const b = Tensor.tensor([[10], [20]]);     // shape [2, 1]
+      const c = a.add(b).sum();
+      c.backward();
+      
+      expect(a.grad!.shape).toEqual([1, 3]);
+      expect(b.grad!.shape).toEqual([2, 1]);
+      // a is broadcast along dim 0, so gradient sums to [2, 2, 2]
+      expect(a.grad!.toArray()).toEqual([[2, 2, 2]]);
+      // b is broadcast along dim 1, so gradient sums to [[3], [3]]
+      expect(b.grad!.toArray()).toEqual([[3], [3]]);
+    });
+
+    test("unbroadcast mul grad_check with scalar", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);
+      const b = Tensor.tensor(2);
+      tensorGradCheck((x, y) => x.mul(y), a, b);
+    });
+
+    test("unbroadcast add grad_check from 3D to 1D", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+      const b = Tensor.tensor([1, 2]);
+      tensorGradCheck((x, y) => x.add(y), a, b);
+    });
+  });
+
+  describe("Contiguous edge cases", () => {
+    test("contiguous on already contiguous tensor", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+      const b = a.contiguous();
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+      expect(a.grad!.toArray()).toEqual([[1, 1, 1], [1, 1, 1]]);
+    });
+
+    test("contiguous after permute", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);  // shape [2, 3]
+      const b = a.permute(1, 0);  // shape [3, 2], non-contiguous
+      const c = b.contiguous();   // now contiguous
+      c.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+      expect(a.grad!.toArray()).toEqual([[1, 1, 1], [1, 1, 1]]);
+    });
+
+    test("contiguous grad_check after permute", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+      tensorGradCheck((t) => t.permute(1, 0).contiguous(), a);
+    });
+
+    test("multiple contiguous calls", () => {
+      const a = Tensor.tensor([1, 2, 3, 4]);
+      const b = a.contiguous().contiguous().contiguous();
+      b.sum().backward();
+      
+      expect(a.grad!.toArray()).toEqual([1, 1, 1, 1]);
+    });
+
+    test("contiguous on scalar", () => {
+      const a = Tensor.tensor(5);
+      const b = a.contiguous();
+      b.backward();
+      
+      expect(a.grad!.get([])).toBe(1);
+    });
+  });
+
+  describe("Sum edge cases", () => {
+    test("sum of scalar tensor", () => {
+      const a = Tensor.tensor(5);
+      const b = a.sum();
+      b.backward();
+      
+      expect(a.grad!.shape).toEqual([]);
+      expect(a.grad!.get([])).toBe(1);
+    });
+
+    test("sum of 1-element tensor", () => {
+      const a = Tensor.tensor([42]);
+      const b = a.sum();
+      b.backward();
+      
+      expect(a.grad!.shape).toEqual([1]);
+      expect(a.grad!.get([0])).toBe(1);
+    });
+
+    test("sum all dims of 3D tensor", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = a.sum();
+      b.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2]);
+      // All gradients should be 1
+      for (let i = 0; i < 2; i++) {
+        for (let j = 0; j < 2; j++) {
+          for (let k = 0; k < 2; k++) {
+            expect(a.grad!.get([i, j, k])).toBe(1);
+          }
+        }
+      }
+    });
+
+    test("sum along first dim", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);  // shape [2, 3]
+      const b = a.sum(0);  // shape [1, 3]
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+      expect(a.grad!.toArray()).toEqual([[1, 1, 1], [1, 1, 1]]);
+    });
+
+    test("sum along last dim", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);  // shape [2, 3]
+      const b = a.sum(1);  // shape [2, 1]
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+      expect(a.grad!.toArray()).toEqual([[1, 1, 1], [1, 1, 1]]);
+    });
+
+    test("sum along middle dim of 3D", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = a.sum(1);  // shape [2, 1, 2]
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2]);
+    });
+
+    test("sum grad_check - all dims", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);
+      tensorGradCheck((t) => t.sum(), a);
+    });
+
+    test("sum grad_check - specific dim", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+      tensorGradCheck((t) => t.sum(0), a);
+      a.zero_grad_();
+      tensorGradCheck((t) => t.sum(1), a);
+    });
+
+    test("chained sum operations", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = a.sum(2).sum(1).sum(0);  // reduce all dims one by one
+      b.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2]);
+    });
+  });
+
+  describe("All edge cases (forward only - no gradient)", () => {
+    test("all of tensor with all ones", () => {
+      const a = Tensor.tensor([[1, 1], [1, 1]]);
+      const b = a.all();
+      expect(b.item()).toBe(1);
+    });
+
+    test("all of tensor with a zero", () => {
+      const a = Tensor.tensor([[1, 1], [0, 1]]);
+      const b = a.all();
+      expect(b.item()).toBe(0);
+    });
+
+    test("all along dim 0", () => {
+      const a = Tensor.tensor([[1, 0], [1, 1]]);
+      const b = a.all(0);
+      expect(b.toArray()).toEqual([[1, 0]]);
+    });
+
+    test("all along dim 1", () => {
+      const a = Tensor.tensor([[1, 0], [1, 1]]);
+      const b = a.all(1);
+      expect(b.toArray()).toEqual([[0], [1]]);
+    });
+
+    test("all of scalar", () => {
+      const a = Tensor.tensor(1);
+      const b = a.all();
+      expect(b.item()).toBe(1);
+    });
+
+    test("all of scalar zero", () => {
+      const a = Tensor.tensor(0);
+      const b = a.all();
+      expect(b.item()).toBe(0);
+    });
+
+    test("all of 3D tensor", () => {
+      const a = Tensor.tensor([[[1, 1], [1, 1]], [[1, 1], [1, 1]]]);
+      const b = a.all();
+      expect(b.item()).toBe(1);
+    });
+
+    test("all of 3D tensor with zero", () => {
+      const a = Tensor.tensor([[[1, 1], [1, 1]], [[1, 0], [1, 1]]]);
+      const b = a.all();
+      expect(b.item()).toBe(0);
+    });
+  });
+
+  describe("Mean edge cases", () => {
+    test("mean of scalar", () => {
+      const a = Tensor.tensor(10);
+      const b = a.mean();
+      b.backward();
+      
+      expect(a.grad!.get([])).toBeCloseTo(1, 5);
+    });
+
+    test("mean of 1-element tensor", () => {
+      const a = Tensor.tensor([7]);
+      const b = a.mean();
+      b.backward();
+      
+      expect(a.grad!.get([0])).toBeCloseTo(1, 5);
+    });
+
+    test("mean along dim 0", () => {
+      const a = Tensor.tensor([[2, 4], [6, 8]]);  // shape [2, 2]
+      const b = a.mean(0);  // shape [1, 2], values [4, 6]
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+      // d(mean)/dx = 1/n where n=2 for each element
+      for (let i = 0; i < 2; i++) {
+        for (let j = 0; j < 2; j++) {
+          expect(a.grad!.get([i, j])).toBeCloseTo(0.5, 5);
+        }
+      }
+    });
+
+    test("mean along dim 1", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);  // shape [2, 3]
+      const b = a.mean(1);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+      // d(mean)/dx = 1/n where n=3 for each element
+      for (let i = 0; i < 2; i++) {
+        for (let j = 0; j < 3; j++) {
+          expect(a.grad!.get([i, j])).toBeCloseTo(1/3, 5);
+        }
+      }
+    });
+
+    test("mean grad_check - all elements", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);
+      tensorGradCheck((t) => t.mean(), a);
+    });
+
+    test("mean grad_check - specific dim", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+      tensorGradCheck((t) => t.mean(0), a);
+      a.zero_grad_();
+      tensorGradCheck((t) => t.mean(1), a);
+    });
+  });
+
+  describe("View edge cases", () => {
+    test("view to same shape", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);
+      const b = a.view(2, 2);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+      expect(a.grad!.toArray()).toEqual([[1, 1], [1, 1]]);
+    });
+
+    test("view to 1D", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+      const b = a.view(6);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+    });
+
+    test("view from 1D to 2D", () => {
+      const a = Tensor.tensor([1, 2, 3, 4, 5, 6]);
+      const b = a.view(2, 3);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([6]);
+    });
+
+    test("view to 3D", () => {
+      const a = Tensor.tensor([1, 2, 3, 4, 5, 6, 7, 8]);
+      const b = a.view(2, 2, 2);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([8]);
+    });
+
+    test("view to scalar-like shape", () => {
+      const a = Tensor.tensor([5]);
+      const b = a.view();  // scalar shape []
+      b.backward();
+      
+      expect(a.grad!.shape).toEqual([1]);
+      expect(a.grad!.get([0])).toBe(1);
+    });
+
+    test("view grad_check with reshape", () => {
+      const a = Tensor.tensor([1, 2, 3, 4, 5, 6]);
+      tensorGradCheck((t) => t.view(3, 2), a);
+    });
+
+    test("chained view operations", () => {
+      const a = Tensor.tensor([1, 2, 3, 4, 5, 6]);
+      const b = a.view(2, 3).view(3, 2).view(6);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([6]);
+    });
+  });
+
+  describe("Permute edge cases", () => {
+    test("permute identity (no change)", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);
+      const b = a.permute(0, 1);  // identity permutation
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+    });
+
+    test("permute 3D - reverse order", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);  // shape [2, 2, 2]
+      const b = a.permute(2, 1, 0);  // reverse dims
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2]);
+    });
+
+    test("permute and permute back", () => {
+      const a = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);  // shape [2, 3]
+      const b = a.permute(1, 0).permute(1, 0);  // should be back to original
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 3]);
+    });
+
+    test("permute 4D tensor", () => {
+      const a = Tensor.tensor([[[[1, 2], [3, 4]], [[5, 6], [7, 8]]], 
+                               [[[9, 10], [11, 12]], [[13, 14], [15, 16]]]]);  // shape [2, 2, 2, 2]
+      const b = a.permute(3, 2, 1, 0);
+      b.sum().backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2, 2, 2]);
+    });
+
+    test("permute grad_check 3D", () => {
+      const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+      tensorGradCheck((t) => t.permute(2, 0, 1), a);
+    });
+  });
 });
