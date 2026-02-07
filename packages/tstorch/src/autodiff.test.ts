@@ -951,6 +951,32 @@ describe("Tensor Autograd - Task 2.4", () => {
       const b = Tensor.tensor([5, 6]);            // [2]
       tensorGradCheck((x, y) => x.mul(y).add(y), a, b);
     });
+
+    test("lt backward with broadcast - gradient shapes match inputs", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);  // [2, 2]
+      const b = Tensor.tensor([2.5]);             // [1]
+      const c = a.lt(b).sum();
+      c.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+      expect(b.grad!.shape).toEqual([1]);
+      // LT has zero gradient everywhere
+      expect(a.grad!.toArray()).toEqual([[0, 0], [0, 0]]);
+      expect(b.grad!.toArray()).toEqual([0]);
+    });
+
+    test("eq backward with broadcast - gradient shapes match inputs", () => {
+      const a = Tensor.tensor([[1, 2], [3, 4]]);  // [2, 2]
+      const b = Tensor.tensor([2]);               // [1]
+      const c = a.eq(b).sum();
+      c.backward();
+      
+      expect(a.grad!.shape).toEqual([2, 2]);
+      expect(b.grad!.shape).toEqual([1]);
+      // EQ has zero gradient everywhere
+      expect(a.grad!.toArray()).toEqual([[0, 0], [0, 0]]);
+      expect(b.grad!.toArray()).toEqual([0]);
+    });
   });
 
   describe("Reduce backward", () => {

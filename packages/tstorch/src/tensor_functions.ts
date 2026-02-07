@@ -335,19 +335,23 @@ export class Mul extends TensorFunction {
 
 export class LT extends TensorFunction {
     static forward(ctx: TensorContext, a: Tensor, b: Tensor): Tensor {
+        ctx.saveForBackward(a, b);
         return new Tensor(lt(a.data, b.data));
     }
     static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
-        return [Tensor.zeros(gradOutput.shape), Tensor.zeros(gradOutput.shape)];
+        const [a, b] = ctx.savedTensors;
+        return [Tensor.zeros(a!.shape), Tensor.zeros(b!.shape)];
     }
 }
 
 export class EQ extends TensorFunction {
     static forward(ctx: TensorContext, a: Tensor, b: Tensor): Tensor {
+        ctx.saveForBackward(a, b);
         return new Tensor(eq(a.data, b.data));
     }
     static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
-        return [Tensor.zeros(gradOutput.shape), Tensor.zeros(gradOutput.shape)];
+        const [a, b] = ctx.savedTensors;
+        return [Tensor.zeros(a!.shape), Tensor.zeros(b!.shape)];
     }
 }
 
