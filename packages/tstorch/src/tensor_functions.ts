@@ -10,6 +10,7 @@ import {
 } from './tensor_data.js';
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
 import * as operators from './operators.js'
+import type { Tensor } from './tensor.js';
 
 
 

@@ -11,7 +11,7 @@ import {
 import * as tensorFunctions from './tensor_functions.js'
 import { tensorMap } from './tensor_ops.js'
 import { TensorContext, TensorHistory, TensorFunction } from './tensor_functions.js';
-import { backPropagate } from './autodiff.js';
+import { backPropagateTensor } from './autodiff.js';
 
 export type TensorLike = number | Tensor;
 
