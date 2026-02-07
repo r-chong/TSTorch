@@ -10,13 +10,75 @@ import {
 } from './tensor_data.js'
 import * as tensorFunctions from './tensor_functions.js'
 import { tensorMap } from './tensor_ops.js'
+import { TensorContext, TensorHistory, TensorFunction } from './tensor_functions.js';
+import { backPropagate } from './autodiff.js';
+
+export type TensorLike = number | Tensor;
 
 export class Tensor {
     private _data: TensorData;
     grad: Tensor | null = null;
+    history: TensorHistory | null = null;
 
-    constructor(data: TensorData) {
+    constructor(data: TensorData, history: TensorHistory | null = null) {
         this._data = data;
+        this.history = history;
+    }
+
+    isLeaf(): boolean {
+        return !this.history?.lastFn;
+    }
+
+    requiresGrad(): boolean {
+        return this.history !== null;
+    }
+
+    accumulateGrad(grad: Tensor): void {
+        if (this.grad === null) {
+            this.grad = grad;
+        } else {
+            this.grad = this.grad.add(grad);
+        }
+    }
+
+    chainRule(gradOutput: Tensor): [Tensor, Tensor][] {
+        const h = this.history;
+        if (!h || !h.lastFn || !h.ctx) {
+            throw new Error("Cannot call chainRule on leaf tensor");
+        }
+
+        const gradients: Tensor[] = h.lastFn.backward(h.ctx, gradOutput);
+
+        const result: [Tensor, Tensor][] = [];
+        for (let i = 0; i < h.inputs.length; i++) {
+            result.push([h.inputs[i]!, gradients[i]!]);
+        }
+        return result;
+    }
+
+    get parents(): Tensor[] {
+        return this.history?.inputs ?? [];
+    }
+
+    static apply(fn: typeof TensorFunction, ...vals: TensorLike[]): Tensor {
+        const tensors: Tensor[] = vals.map(v =>
+            v instanceof Tensor ? v : Tensor.tensor(v)
+        )
+
+        const ctx = new TensorContext();
+        const result = fn.forward(ctx, ...tensors);
+
+        const history = new TensorHistory(fn, ctx, tensors);
+        result.history = history;
+
+        return result;
+    }
+
+    backward(gradOutput?: Tensor): void {
+        if (gradOutput == undefined) {
+            gradOutput = Tensor.ones(this.shape);
+        }
+        backPropagateTensor(this, gradOutput);
     }
 
     static tensor(values: any, shape?: Shape): Tensor {

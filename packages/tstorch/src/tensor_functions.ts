@@ -11,6 +11,8 @@ import {
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
 import * as operators from './operators.js'
 
+
+
 function zeros(shape: Shape): TensorData {
     return TensorData.zeros(shape);
 }
@@ -181,4 +183,34 @@ export function contiguous(a: TensorData): TensorData {
     }
 
     return id(a);
+}
+
+export class TensorContext {
+    private _savedTensors: Tensor[] = [];
+
+    saveForBackward(...tensors: Tensor[]): void {
+        this._savedTensors = tensors;
+    }
+
+    get savedTensors(): Tensor[] {
+        return this._savedTensors;
+    }
+}
+
+export class TensorHistory {
+    constructor (
+        public lastFn: typeof TensorFunction | null = null,
+        public ctx: TensorContext | null = null,
+        public inputs: Tensor[] = []
+    ) {}
+}
+
+export abstract class TensorFunction {
+    static forward(ctx: TensorContext, ...inputs: Tensor[]): Tensor {
+        throw new Error("forward not implemented");
+    }
+
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        throw new Error("backward not implemented");
+    }
 }
