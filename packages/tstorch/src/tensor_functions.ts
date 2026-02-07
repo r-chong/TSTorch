@@ -363,7 +363,7 @@ export function Sum(dim: number): typeof TensorFunction {
         }
         static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
             const [a] = ctx.savedTensors;
-            return [gradOutput.add(Tensor.zeros(a!.shape))];
+            return [gradOutput.mul(Tensor.ones(a!.shape))];
         }
     };
 }

@@ -1,12 +1,10 @@
 import type {
     Shape,
-    Storage
 } from './tensor_data.js'
 
 import {
     TensorData,
     shapeProduct,
-    strides as computeStrides,
 } from './tensor_data.js'
 import * as tensorFunctions from './tensor_functions.js'
 import { tensorMap } from './tensor_ops.js'
@@ -255,13 +253,9 @@ export class Tensor {
             throw new Error(`Invalid dimension ${dim} for tensor with ${this.dims} dimensions`);
         }
 
-        const s = tensorFunctions.sum(this._data, dim);
+        const s = this.sum(dim);
         const count = this._data.shape[dim]!;
-        const divFn = (x: number) => x / count;
-        const out = TensorData.zeros(s.shape);
-        const mapFn = tensorMap(divFn);
-        mapFn(out.storage, out.shape, out.strides, s.storage, s.shape, s.strides);
-        return new Tensor(out);
+        return s.mul(1 / count);
     }
 
     all(dim?: number): Tensor {
