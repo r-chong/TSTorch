@@ -65,6 +65,12 @@ export class Tensor {
 
         const gradients: Tensor[] = h.lastFn.backward(h.ctx, gradOutput);
 
+        if (gradients.length !== h.inputs.length) {
+            throw new Error(
+                `Backward returned ${gradients.length} gradients but expected ${h.inputs.length} for ${h.inputs.length} inputs`
+            );
+        }
+
         const result: [Tensor, Tensor][] = [];
         for (let i = 0; i < h.inputs.length; i++) {
             result.push([h.inputs[i]!, gradients[i]!]);
@@ -151,7 +157,7 @@ export class Tensor {
         return this._data;
     }
 
-    private _ensureTensor(value: number | Tensor) : Tensor {
+    private static _ensureTensor(value: number | Tensor) : Tensor {
         if (value instanceof Tensor) {
             return value;
         }
@@ -184,34 +190,35 @@ export class Tensor {
     }
 
     add(other: number | Tensor): Tensor {
-        return Tensor.apply(AddFn, this, this._ensureTensor(other));
+        return Tensor.apply(AddFn, this, Tensor._ensureTensor(other));
     }
 
     sub(other: number | Tensor): Tensor {
         // a - b = a + (-b)
-        return this.add(this._ensureTensor(other).neg());
+        return this.add(Tensor._ensureTensor(other).neg());
     }
 
     mul(other: number | Tensor): Tensor {
-        return Tensor.apply(MulFn, this, this._ensureTensor(other));
+        return Tensor.apply(MulFn, this, Tensor._ensureTensor(other));
     }
 
     lt(other: number | Tensor): Tensor {
-        return Tensor.apply(LTFn, this, this._ensureTensor(other));
+        return Tensor.apply(LTFn, this, Tensor._ensureTensor(other));
     }
 
     eq(other: number | Tensor): Tensor {
-        return Tensor.apply(EQFn, this, this._ensureTensor(other));
+        return Tensor.apply(EQFn, this, Tensor._ensureTensor(other));
     }
 
     gt(other: number | Tensor): Tensor {
         // a > b is equivalent to b < a
-        const b = this._ensureTensor(other);
+        const b = Tensor._ensureTensor(other);
         return Tensor.apply(LTFn, b, this);
     }
 
     is_close(other: number | Tensor): Tensor {
-        const b = this._ensureTensor(other);
+        // Note: is_close is a comparison operation and does not support gradients
+        const b = Tensor._ensureTensor(other);
         return new Tensor(tensorFunctions.isClose(this._data, b._data));
     }
 
@@ -232,7 +239,7 @@ export class Tensor {
             for (let d = result.dims - 1; d >= 0; d--) {
                 result = Tensor.apply(SumFn(d), result);
             }
-            return result.view(1);
+            return result.view();
         }
 
         if (dim < 0 || dim >= this.dims) {
@@ -258,6 +265,7 @@ export class Tensor {
         return s.mul(1 / count);
     }
 
+    // Note: all() is a boolean reduction and does not support gradients
     all(dim?: number): Tensor {
         if (dim === undefined) {
             let result = this._data;

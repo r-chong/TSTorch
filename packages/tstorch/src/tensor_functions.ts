@@ -246,8 +246,8 @@ export class ReLU extends TensorFunction {
     }
     static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
         const [a] = ctx.savedTensors;
-        // grad * (a > 0)
-        return [gradOutput.mul(a!.gt(0))];
+        const mask = new Tensor(lt(Tensor.zeros(a!.shape).data, a!.data));
+        return [gradOutput.mul(mask)];
     }
 }
 

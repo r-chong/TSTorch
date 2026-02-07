@@ -1160,7 +1160,7 @@ describe("Tensor Autograd - Task 2.4", () => {
       
       c.backward();
       
-      expect(c.shape).toEqual([1]);
+      expect(c.shape).toEqual([]);
       expect(a.grad).not.toBeNull();
       expect(b.grad).not.toBeNull();
       expect(a.grad!.shape).toEqual(a.shape);
