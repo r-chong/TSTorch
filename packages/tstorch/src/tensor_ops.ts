@@ -124,7 +124,7 @@ export function tensorReduce(
             aIndex[reduceDim] = 0;
             let acc = aStorage[indexToPosition(aIndex, aStrides)]!;
 
-            for (let j = 1; j < reduceDim; j++) {
+            for (let j = 1; j < reduceDimSize; j++) {
                 aIndex[reduceDim] = j;
                 const aPos = indexToPosition(aIndex, aStrides);
                 acc = fn(acc, aStorage[aPos]!);

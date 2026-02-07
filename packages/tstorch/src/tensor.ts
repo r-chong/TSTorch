@@ -9,6 +9,7 @@ import {
     strides as computeStrides,
 } from './tensor_data.js'
 import * as tensorFunctions from './tensor_functions.js'
+import { tensorMap } from './tensor_ops.js'
 
 export class Tensor {
     private _data: TensorData;
@@ -141,6 +142,14 @@ export class Tensor {
         return new Tensor(tensorFunctions.isClose(this._data, b._data));
     }
 
+    radd(other: number | Tensor): Tensor {
+        return this.add(other);
+    }
+
+    rmul(other: number | Tensor): Tensor {
+        return this.mul(other);
+    }
+
     sum(dim?: number): Tensor {
         if (dim === undefined) {
             let result = this._data;
@@ -172,7 +181,6 @@ export class Tensor {
         const count = this._data.shape[dim]!;
         const divFn = (x: number) => x / count;
         const out = TensorData.zeros(s.shape);
-        const { tensorMap } = require('./tensor_ops.js');
         const mapFn = tensorMap(divFn);
         mapFn(out.storage, out.shape, out.strides, s.storage, s.shape, s.strides);
         return new Tensor(out);
@@ -191,7 +199,6 @@ export class Tensor {
         const p = tensorFunctions.prod(this._data, dim);
         const toBoolean = (x: number) => (x !== 0 ? 1 : 0);
         const out = TensorData.zeros(p.shape);
-        const { tensorMap } = require('./tensor_ops.js');
         const mapFn = tensorMap(toBoolean);
         mapFn(out.storage, out.shape, out.strides, p.storage, p.shape, p.strides);
         return new Tensor(out);
