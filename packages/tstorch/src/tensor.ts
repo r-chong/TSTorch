@@ -196,6 +196,10 @@ export class Tensor {
             return Tensor.tensor(val);
         }
 
+        if (dim < 0 || dim >= this.dims) {
+            throw new Error(`Invalid dimension ${dim} for tensor with ${this.dims} dimensions`);
+        }
+
         const p = tensorFunctions.prod(this._data, dim);
         const toBoolean = (x: number) => (x !== 0 ? 1 : 0);
         const out = TensorData.zeros(p.shape);
@@ -232,7 +236,9 @@ export class Tensor {
         if (this.size !== 1) {
             throw new Error('item() only works for tensors with exactly one element');
         }
-        return this._data.storage[0]!;
+        
+        const idx = new Array(this.dims).fill(0);
+        return this._data.get(idx);
     }
 
     toArray(): any {

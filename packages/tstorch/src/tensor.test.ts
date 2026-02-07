@@ -608,3 +608,263 @@ describe("Property-based tests", () => {
         expect(totalSum).toBeCloseTo(sumOfRowSums);
     });
 });
+
+// ============================================================
+// Edge Case Tests
+// ============================================================
+
+describe("Edge Cases", () => {
+    describe("Scalar (0-d) tensor operations", () => {
+        test("sum on scalar returns scalar", () => {
+            const t = Tensor.tensor(5);
+            const result = t.sum();
+            expect(result.dims).toBe(0);
+            expect(result.item()).toBe(5);
+        });
+
+        test("mean on scalar returns scalar", () => {
+            const t = Tensor.tensor(10);
+            const result = t.mean();
+            expect(result.item()).toBeCloseTo(10);
+        });
+
+        test("all on scalar (truthy)", () => {
+            const t = Tensor.tensor(5);
+            expect(t.all().item()).toBe(1);
+        });
+
+        test("all on scalar (falsy)", () => {
+            const t = Tensor.tensor(0);
+            expect(t.all().item()).toBe(0);
+        });
+
+        test("neg on scalar", () => {
+            const t = Tensor.tensor(5);
+            expect(t.neg().item()).toBe(-5);
+        });
+
+        test("add scalar tensors", () => {
+            const a = Tensor.tensor(3);
+            const b = Tensor.tensor(4);
+            expect(a.add(b).item()).toBe(7);
+        });
+
+        test("mul scalar tensors", () => {
+            const a = Tensor.tensor(3);
+            const b = Tensor.tensor(4);
+            expect(a.mul(b).item()).toBe(12);
+        });
+
+        test("toArray on scalar", () => {
+            const t = Tensor.tensor(42);
+            expect(t.toArray()).toBe(42);
+        });
+    });
+
+    describe("Single element tensor operations", () => {
+        test("item on [1] shape tensor", () => {
+            const t = Tensor.tensor([5]);
+            expect(t.item()).toBe(5);
+        });
+
+        test("item on [1,1] shape tensor", () => {
+            const t = Tensor.tensor([[5]]);
+            expect(t.item()).toBe(5);
+        });
+
+        test("item on [1,1,1] shape tensor", () => {
+            const t = Tensor.tensor([[[5]]]);
+            expect(t.item()).toBe(5);
+        });
+
+        test("sum on [1] tensor", () => {
+            const t = Tensor.tensor([5]);
+            expect(t.sum().item()).toBe(5);
+        });
+
+        test("mean on [1] tensor", () => {
+            const t = Tensor.tensor([5]);
+            expect(t.mean().item()).toBe(5);
+        });
+    });
+
+    describe("Dimension validation", () => {
+        test("sum throws on invalid negative dim", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            expect(() => t.sum(-1)).toThrow();
+        });
+
+        test("sum throws on dim >= dims", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            expect(() => t.sum(2)).toThrow();
+        });
+
+        test("mean throws on invalid dim", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            expect(() => t.mean(-1)).toThrow();
+            expect(() => t.mean(2)).toThrow();
+        });
+
+        test("all throws on invalid dim", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            expect(() => t.all(-1)).toThrow();
+            expect(() => t.all(2)).toThrow();
+        });
+    });
+
+    describe("Non-contiguous tensor operations", () => {
+        test("operations on permuted tensor", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const permuted = t.permute(1, 0); // shape [3, 2]
+            
+            // neg should work
+            const negated = permuted.neg();
+            expect(negated.shape).toEqual([3, 2]);
+            expect(negated.get([0, 0])).toBe(-1);
+            expect(negated.get([0, 1])).toBe(-4);
+        });
+
+        test("sum on permuted tensor", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const permuted = t.permute(1, 0); // shape [3, 2]: [[1,4], [2,5], [3,6]]
+            
+            // Sum along dim 0
+            const summed = permuted.sum(0);
+            expect(summed.shape).toEqual([1, 2]);
+            // [1+2+3, 4+5+6] = [6, 15]
+            expect(summed.toArray()).toEqual([[6, 15]]);
+        });
+
+        test("view on permuted tensor throws", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const permuted = t.permute(1, 0);
+            expect(() => permuted.view(6)).toThrow();
+        });
+
+        test("contiguous then view works", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const permuted = t.permute(1, 0);
+            const contig = permuted.contiguous();
+            const viewed = contig.view(6);
+            expect(viewed.shape).toEqual([6]);
+            expect(viewed.toArray()).toEqual([1, 4, 2, 5, 3, 6]);
+        });
+
+        test("item on permuted single-element tensor", () => {
+            const t = Tensor.tensor([[5]]);
+            const permuted = t.permute(1, 0);
+            expect(permuted.item()).toBe(5);
+        });
+    });
+
+    describe("Broadcasting edge cases", () => {
+        test("scalar broadcasts to any shape", () => {
+            const scalar = Tensor.tensor(5);
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            const result = t.add(scalar);
+            expect(result.toArray()).toEqual([[6, 7], [8, 9]]);
+        });
+
+        test("3D + 1D broadcasting", () => {
+            const a = Tensor.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]); // [2, 2, 2]
+            const b = Tensor.tensor([10, 100]); // [2]
+            const result = a.add(b);
+            expect(result.shape).toEqual([2, 2, 2]);
+            expect(result.get([0, 0, 0])).toBe(11);
+            expect(result.get([0, 0, 1])).toBe(102);
+        });
+
+        test("2D + scalar number (not tensor)", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            const result = t.add(10);
+            expect(result.toArray()).toEqual([[11, 12], [13, 14]]);
+        });
+    });
+
+    describe("Large tensor operations", () => {
+        test("sum of large tensor", () => {
+            const size = 1000;
+            const t = Tensor.ones([size]);
+            expect(t.sum().item()).toBe(size);
+        });
+
+        test("mean of large tensor", () => {
+            const t = Tensor.ones([100, 100]);
+            expect(t.mean().item()).toBeCloseTo(1);
+        });
+    });
+
+    describe("Chained operations", () => {
+        test("chain of unary ops", () => {
+            const t = Tensor.tensor([1, 2, 3, 4]);
+            const result = t.neg().neg().neg();
+            expect(result.toArray()).toEqual([-1, -2, -3, -4]);
+        });
+
+        test("chain of binary ops", () => {
+            const t = Tensor.tensor([1, 2, 3, 4]);
+            const result = t.add(1).mul(2).sub(1);
+            expect(result.toArray()).toEqual([3, 5, 7, 9]);
+        });
+
+        test("chain reductions", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const result = t.sum(1).sum(0);
+            expect(result.item()).toBe(21);
+        });
+    });
+
+    describe("Zero and negative values", () => {
+        test("relu on negative values", () => {
+            const t = Tensor.tensor([-5, -1, 0, 1, 5]);
+            expect(t.relu().toArray()).toEqual([0, 0, 0, 1, 5]);
+        });
+
+        test("log of 1", () => {
+            const t = Tensor.tensor([1]);
+            expect(t.log().item()).toBeCloseTo(0);
+        });
+
+        test("exp of 0", () => {
+            const t = Tensor.tensor([0]);
+            expect(t.exp().item()).toBeCloseTo(1);
+        });
+
+        test("sigmoid of 0", () => {
+            const t = Tensor.tensor([0]);
+            expect(t.sigmoid().item()).toBeCloseTo(0.5);
+        });
+    });
+
+    describe("Reduction with size-1 dimensions", () => {
+        test("sum along already-size-1 dimension", () => {
+            const t = Tensor.tensor([[1, 2, 3]]); // shape [1, 3]
+            const result = t.sum(0);
+            expect(result.shape).toEqual([1, 3]);
+            expect(result.toArray()).toEqual([[1, 2, 3]]);
+        });
+
+        test("mean along size-1 dimension", () => {
+            const t = Tensor.tensor([[1], [2], [3]]); // shape [3, 1]
+            const result = t.mean(1);
+            expect(result.shape).toEqual([3, 1]);
+            expect(result.toArray()).toEqual([[1], [2], [3]]);
+        });
+    });
+
+    describe("toArray correctness", () => {
+        test("toArray called multiple times gives same result", () => {
+            const t = Tensor.tensor([[1, 2], [3, 4]]);
+            const arr1 = t.toArray();
+            const arr2 = t.toArray();
+            expect(arr1).toEqual(arr2);
+            expect(arr1).toEqual([[1, 2], [3, 4]]);
+        });
+
+        test("toArray on permuted tensor", () => {
+            const t = Tensor.tensor([[1, 2, 3], [4, 5, 6]]);
+            const permuted = t.permute(1, 0);
+            expect(permuted.toArray()).toEqual([[1, 4], [2, 5], [3, 6]]);
+        });
+    });
+});

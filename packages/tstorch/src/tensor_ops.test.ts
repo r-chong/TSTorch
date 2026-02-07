@@ -423,3 +423,131 @@ describe("tensorReduce", () => {
         }
     });
 });
+
+// ============================================================
+// Edge Cases for tensor_ops
+// ============================================================
+
+describe("tensorMap edge cases", () => {
+    test("map on 0-dimensional tensor (scalar)", () => {
+        const input = new TensorData(new Float64Array([5]), []);
+        const output = TensorData.zeros([]);
+        
+        const mapFn = tensorMap((x) => x * 2);
+        mapFn(output.storage, output.shape, output.strides,
+              input.storage, input.shape, input.strides);
+        
+        expect(output.storage[0]).toBe(10);
+    });
+
+    test("map with same input and output shape", () => {
+        const input = new TensorData(new Float64Array([1, 2, 3, 4]), [2, 2]);
+        const output = TensorData.zeros([2, 2]);
+        
+        const mapFn = tensorMap((x) => x + 1);
+        mapFn(output.storage, output.shape, output.strides,
+              input.storage, input.shape, input.strides);
+        
+        expect(Array.from(output.storage)).toEqual([2, 3, 4, 5]);
+    });
+
+    test("map on 4D tensor", () => {
+        const input = new TensorData(new Float64Array(16).fill(1), [2, 2, 2, 2]);
+        const output = TensorData.zeros([2, 2, 2, 2]);
+        
+        const mapFn = tensorMap((x) => x * 3);
+        mapFn(output.storage, output.shape, output.strides,
+              input.storage, input.shape, input.strides);
+        
+        expect(output.storage.every(v => v === 3)).toBe(true);
+    });
+});
+
+describe("tensorZip edge cases", () => {
+    test("zip two scalar tensors", () => {
+        const a = new TensorData(new Float64Array([3]), []);
+        const b = new TensorData(new Float64Array([4]), []);
+        const output = TensorData.zeros([]);
+        
+        const zipFn = tensorZip((x, y) => x + y);
+        zipFn(output.storage, output.shape, output.strides,
+              a.storage, a.shape, a.strides,
+              b.storage, b.shape, b.strides);
+        
+        expect(output.storage[0]).toBe(7);
+    });
+
+    test("zip on non-contiguous tensors", () => {
+        const original = new TensorData(new Float64Array([1, 2, 3, 4, 5, 6]), [2, 3]);
+        const permuted = original.permute(1, 0); // [3, 2] with strides [1, 3]
+        const b = new TensorData(new Float64Array([10, 20, 30, 40, 50, 60]), [3, 2]);
+        const output = TensorData.zeros([3, 2]);
+        
+        const zipFn = tensorZip((x, y) => x + y);
+        zipFn(output.storage, output.shape, output.strides,
+              permuted.storage, permuted.shape, permuted.strides,
+              b.storage, b.shape, b.strides);
+        
+        // permuted: [[1,4], [2,5], [3,6]]
+        // b: [[10,20], [30,40], [50,60]]
+        // result: [[11,24], [32,45], [53,66]]
+        expect(Array.from(output.storage)).toEqual([11, 24, 32, 45, 53, 66]);
+    });
+
+    test("zip with 3D broadcasting", () => {
+        const a = new TensorData(new Float64Array([1, 2]), [2]); // broadcasts to [2, 2, 2]
+        const b = new TensorData(new Float64Array([10, 20, 30, 40, 50, 60, 70, 80]), [2, 2, 2]);
+        const output = TensorData.zeros([2, 2, 2]);
+        
+        const zipFn = tensorZip((x, y) => x + y);
+        zipFn(output.storage, output.shape, output.strides,
+              a.storage, a.shape, a.strides,
+              b.storage, b.shape, b.strides);
+        
+        expect(Array.from(output.storage)).toEqual([11, 22, 31, 42, 51, 62, 71, 82]);
+    });
+});
+
+describe("tensorReduce edge cases", () => {
+    test("reduce on non-contiguous tensor", () => {
+        const original = new TensorData(new Float64Array([1, 2, 3, 4, 5, 6]), [2, 3]);
+        const permuted = original.permute(1, 0); // [3, 2] with strides [1, 3]
+        // permuted: [[1,4], [2,5], [3,6]]
+        const output = TensorData.zeros([3, 1]);
+        
+        const reduceFn = tensorReduce((acc, x) => acc + x);
+        reduceFn(output.storage, output.shape, output.strides,
+                 permuted.storage, permuted.shape, permuted.strides, 1);
+        
+        // sum along dim 1: [1+4, 2+5, 3+6] = [5, 7, 9]
+        expect(Array.from(output.storage)).toEqual([5, 7, 9]);
+    });
+
+    test("reduce 4D tensor along middle dimension", () => {
+        // Shape [2, 3, 2, 2], reduce along dim 1 -> [2, 1, 2, 2]
+        const size = 2 * 3 * 2 * 2;
+        const data = new Float64Array(size);
+        for (let i = 0; i < size; i++) data[i] = i + 1;
+        const input = new TensorData(data, [2, 3, 2, 2]);
+        const output = TensorData.zeros([2, 1, 2, 2]);
+        
+        const reduceFn = tensorReduce((acc, x) => acc + x);
+        reduceFn(output.storage, output.shape, output.strides,
+                 input.storage, input.shape, input.strides, 1);
+        
+        // Verify first element: sum of elements at [0,0,0,0], [0,1,0,0], [0,2,0,0]
+        // = 1 + 5 + 9 = 15
+        expect(output.get([0, 0, 0, 0])).toBe(15);
+    });
+
+    test("reduce with large dimension", () => {
+        const input = new TensorData(new Float64Array(100).fill(1), [100]);
+        const output = TensorData.zeros([1]);
+        
+        const reduceFn = tensorReduce((acc, x) => acc + x);
+        reduceFn(output.storage, output.shape, output.strides,
+                 input.storage, input.shape, input.strides, 0);
+        
+        expect(output.storage[0]).toBe(100);
+    });
+});
