@@ -1,3 +1,10 @@
+export class IndexingError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'IndexingError';
+    }
+}
+
 export type Shape = readonly number[];
 
 export type Strides = readonly number[];
@@ -113,5 +120,52 @@ export class TensorData {
 
     toString(): string {
         return `TensorData(shape=${JSON.stringify(this.shape)}, strides=${JSON.stringify(this.strides)})`;
+    }
+}
+
+export function shapeBroadcast(shape1: Shape, shape2: Shape): number[] {
+    const maxDims = Math.max(shape1.length, shape2.length);
+    const result: number[] = new Array(maxDims);
+
+    for (let i = 0; i < maxDims; i++) {
+        const idx1 = shape1.length - 1 - i;
+        const idx2 = shape2.length - 1 - i;
+
+        const dim1 = idx1 >= 0 ? shape1[idx1]! : 1;
+        const dim2 = idx2 >= 0 ? shape2[idx2]! : 1;
+
+        if (dim1 == dim2) {
+            result[maxDims - 1 - i] = dim1;
+        } else if (dim1 === 1) {
+            result[maxDims - 1 - i] = dim2;
+        } else if (dim2 === 1) {
+            result[maxDims - 1 - i] = dim1;
+        } else {
+            throw new IndexingError(
+                `Cannot broadcast shapes [${shape1.join(', ')}] and [${shape2.join(', ')}]: ` + 
+                `dimension mismatch at position ${-i - 1} (${dim1} vs ${dim2})`
+            )
+        }
+    }
+
+    return result;
+}
+
+export function broadcastIndex (
+    bigIndex: Index,
+    bigShape: Shape,
+    shape: Shape,
+    outIndex: OutIndex
+): void {
+    const offset = bigShape.length - shape.length;
+
+    for (let i = 0; i < shape.length; i++) {
+        const bigI = i + offset;
+
+        if (shape[i] === 1) {
+            outIndex[i] = 0
+        } else {
+            outIndex[i] = bigIndex[bigI]!;
+        }
     }
 }

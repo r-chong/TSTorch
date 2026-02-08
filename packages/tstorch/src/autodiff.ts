@@ -1,4 +1,5 @@
 import { Scalar } from "./scalar.js";
+import { Tensor } from "./tensor.js";
 
 export function centralDifference(
     f: (...args: number[]) => number,
@@ -58,6 +59,47 @@ export function backPropagate(scalar: Scalar, dOut: number): void {
         } else {
             for (const [parent, grad] of node.chainRule(d)) {
                 derivatives.set(parent, (derivatives.get(parent) ?? 0) + grad);
+            }
+        }
+    }
+}
+
+export function topologicalSortTensor(tensor: Tensor): Tensor[] {
+    const visited = new Set<Tensor>();
+    const sorted: Tensor[] = [];
+
+    const dfs = (t: Tensor) => {
+        if (visited.has(t)) return;
+        visited.add(t);
+        for (const parent of t.parents) {
+            dfs(parent);
+        }
+        sorted.push(t);
+    };
+    dfs(tensor);
+    return sorted.reverse();
+}
+
+export function backPropagateTensor(tensor: Tensor, gradOutput: Tensor): void {
+    const sorted = topologicalSortTensor(tensor);
+    const gradients: Map<Tensor, Tensor> = new Map();
+
+    gradients.set(tensor, gradOutput);
+
+    for (const node of sorted) {
+        const grad = gradients.get(node);
+        if (grad === undefined) continue;
+
+        if (node.isLeaf()) {
+            node.accumulateGrad(grad);
+        } else {
+            for (const [parent, parentGrad] of node.chainRule(grad)) {
+                const existing = gradients.get(parent);
+                if (existing) {
+                    gradients.set(parent, existing.add(parentGrad));
+                } else {
+                    gradients.set(parent, parentGrad);
+                }
             }
         }
     }
