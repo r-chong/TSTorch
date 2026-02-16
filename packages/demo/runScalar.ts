@@ -10,16 +10,19 @@ class Network {
   }
 
   forward(x: [Scalar, Scalar]): Scalar {
+    // task 2
     // depends on task 1.5
     throw new Error("Need to implement for Task 1.5");
   }
 }
 
 class Linear {
-    inSize: number;
-    outSize: number;
-    weights: Scalar[][];
-    bias: Scalar[];  constructor(inSize: number, outSize: number) {
+  inSize: number;
+  outSize: number;
+  weights: Scalar[][];
+  bias: Scalar[];  
+  
+  constructor(inSize: number, outSize: number) {
     // we get errors but they should not be here anymore when we're done 1.5
     this.inSize = inSize;
     this.outSize = outSize;
@@ -32,8 +35,18 @@ class Linear {
   }
 
   forward(inputs: Scalar[]): Scalar[] {
-    // TODO: implement Task 1.5
-    throw new Error("Need to implement for Task 1.5");
+    const outputs: Scalar[] = [];
+
+    for (let i = 0; i < this.outSize; ++i) {
+      let result = this.bias[i];
+
+      for (let j = 0; j < this.inSize; ++j) {
+        result.add(this.weights[i][j].mul(inputs[j]));
+      }
+      outputs.push(result);
+    }
+    
+    return outputs;
   }
 }
 
@@ -47,7 +60,10 @@ class ScalarTrain {
   }
 
   train(data: Graph, learningRate: number, maxEpochs = 500) {
-    // This will fail until Network/Linear are implemented.
+    // zero out gradients
+    // how do we zero out gradients?
+    // set the value of the gradient scalars to zero?
+
     throw new Error("Train loop depends on Task 1.5 implementation");
   }
 }
