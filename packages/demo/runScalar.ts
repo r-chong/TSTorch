@@ -4,15 +4,29 @@ type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
 class Network {
+  layer1: Linear;
+  layer2: Linear
+
   constructor(hiddenLayers: number) {
-    // TODO: implement Task 1.5.
-    throw new Error("Need to implement for Task 1.5");
+    // Take 2 inputs - Point (x,y), process through hidden layers, return 1 output
+    this.layer1 = new Linear(2, hiddenLayers);
+    this.layer2 = new Linear(hiddenLayers, 1);
   }
 
   forward(x: [Scalar, Scalar]): Scalar {
-    // task 2
-    // depends on task 1.5
-    throw new Error("Need to implement for Task 1.5");
+    const relu1: Scalar[] = [];
+
+    // input point x into layer 1
+    const outputs1: Scalar[] = this.layer1.forward(x);
+
+    for (let i = 0; i < this.layer1.outSize; ++i) {
+      relu1.push(outputs1[i].relu());
+    }
+
+    // return Scalar array of len 1
+    const outputs2: Scalar[] = this.layer2.forward(relu1);
+
+    return outputs2[0];
   }
 }
 
