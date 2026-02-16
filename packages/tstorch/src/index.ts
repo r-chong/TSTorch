@@ -4,3 +4,4 @@ export * from "./scalar.js";
 export * from "./scalar_functions.js";
 export * from "./datasets.js"
 export * from "./optimizer.js"
+export * from "./module.js"

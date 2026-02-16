@@ -1,10 +1,10 @@
-import { Scalar, datasets, SGD, Optimizer } from "tstorch";
+import { Scalar, datasets, SGD, Optimizer, Parameter } from "tstorch";
 import { Module } from "../tstorch/dist/module.js";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
-class Network extends Module {
+class Network extends Module<Parameter<Scalar>> {
   layer1: Linear;
   layer2: Linear
 
