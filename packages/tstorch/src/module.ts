@@ -46,13 +46,13 @@ export class Module<P extends BaseParameter = BaseParameter> {
     }
 
     namedParameters(): Array<[string, P]> {
-    const named: Array<[string, P]> = Object.entries(this._parameters);
+        const named: Array<[string, P]> = Object.entries(this._parameters);
     
-    for (const [moduleName, module] of Object.entries(this._modules)) {
-        for (const [name, param] of module.namedParameters()) {
-            named.push([`${moduleName}.${name}`, param]);
+        for (const [moduleName, module] of Object.entries(this._modules)) {
+            for (const [name, param] of module.namedParameters()) {
+                named.push([`${moduleName}.${name}`, param]);
+            }
         }
-    }
     
         return named;
     }
