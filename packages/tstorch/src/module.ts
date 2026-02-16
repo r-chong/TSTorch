@@ -8,34 +8,77 @@ Attributes:
     training : Whether the module is in training mode or evaluation mode
 */
 
-export class Module {
-    private modules: Record<string, Module> = {};
-    private parameters: Record<string, BaseParameter> = {};
+export class Module<P extends BaseParameter = BaseParameter> {
+    protected _modules: Record<string, Module<P>> = {};
+    protected _parameters: Record<string, P> = {};
     training: boolean = true;
 
-    // Automatically register submodules and parameters
     constructor() {
         return new Proxy(this, {
-            set: (target, key: string, value) => {
+            set: (target, key: string | symbol, value, receiver) => {
                 if (value instanceof Module) {
-                    target.modules[key] = value;
+                    target._modules[key as string] = value;
                 } 
-                else if (value instanceof Parameter) {
-                    target.parameters[key] = value;
+                else if (value instanceof BaseParameter) {
+                    target._parameters[key as string] = value as P;
                 }
                 else {
                     (target as any)[key] = value;
                 }
 
-                return true;
+                return Reflect.set(target, key, value, receiver);
             }
         })
+    }
+
+    parameters(): P[] {
+        let params: P[] = [];
+
+        for (const p of Object.values(this._parameters)) {
+            params.push(p);
+        }
+
+        for (const m of Object.values(this._modules) as Module<P>[]) {
+            params.push(...m.parameters());
+        }
+
+        return params;
+    }
+
+    namedParameters(): Array<[string, P]> {
+    const named: Array<[string, P]> = Object.entries(this._parameters);
+    
+    for (const [moduleName, module] of Object.entries(this._modules)) {
+        for (const [name, param] of module.namedParameters()) {
+            named.push([`${moduleName}.${name}`, param]);
+        }
+    }
+    
+        return named;
+    }
+
+    modules(): Module<P>[] {
+        return Object.values(this._modules);
+    }
+
+    train(): void {
+        this.training = true;
+        for (const module of this.modules()) {
+            module.train();
+        }
+    }
+
+    eval(): void {
+        this.training = false;
+        for (const module of this.modules()) {
+            module.eval();
+        }
     }
 }
 
 // Non-generic base class to type Parameter class yet not Module class
 export abstract class BaseParameter {
-    name?: string;
+    name?: string | undefined;
 }
 
 // TODO: default T=Tensor when merging into Tensor
