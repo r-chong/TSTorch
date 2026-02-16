@@ -14,7 +14,7 @@ export class Optimizer {
 export class SGD extends Optimizer {
     lr: number;
 
-    constructor(parameters: Parameter<ParameterValue>[], lr: number = 1.0) {
+    constructor(parameters: Parameter<Scalar>[], lr: number = 1.0) {
         super(parameters);
         this.lr = lr;
     }
@@ -38,10 +38,10 @@ export class SGD extends Optimizer {
     }
 
     step() {
-    for (let p of this.parameters) {
-        if (!p.value || typeof p.value !== 'object') {
-            continue;
-        }
+        for (let p of this.parameters) {
+            if (!p.value || typeof p.value !== 'object') {
+                continue;
+            }
 
         // Check for derivative (Scalar-like objects)
         if (p.value instanceof Scalar) {
