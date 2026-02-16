@@ -1,18 +1,20 @@
+export type ParameterValue = Scalar; // TODO: add tensor
+
 import { Scalar } from "./scalar.js";
 import { Parameter } from "./module.js";
 
-export class Optimizer<T> {
-    parameters: Parameter<T>[];
+export class Optimizer {
+    parameters: Parameter<ParameterValue>[];
 
-    constructor(parameters: Parameter<T>[]) {
+    constructor(parameters: Parameter<ParameterValue>[]) {
         this.parameters = parameters;
     }
 }
 
-export class SGD<T> extends Optimizer<T> {
+export class SGD extends Optimizer {
     lr: number;
 
-    constructor(parameters: Parameter<T>[], lr: number = 1.0) {
+    constructor(parameters: Parameter<ParameterValue>[], lr: number = 1.0) {
         super(parameters);
         this.lr = lr;
     }
@@ -34,4 +36,20 @@ export class SGD<T> extends Optimizer<T> {
             }
         }
     }
+
+    step() {
+    for (let p of this.parameters) {
+        if (!p.value || typeof p.value !== 'object') {
+            continue;
+        }
+
+        // Check for derivative (Scalar-like objects)
+        if (p.value instanceof Scalar) {
+            if (p.value.derivative !== null && p.value.derivative !== undefined) {
+                // p.update(Scalar(p.value.data - this.lr * p.value.derivative))
+                p.update(new Scalar(p.value.data - this.lr * p.value.derivative));
+            }
+        }
+    }
+}
 }
