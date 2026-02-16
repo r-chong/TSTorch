@@ -5,7 +5,6 @@ export * from "./operators.js";
 // Scalar module
 export * from "./scalar.js";
 export * from "./scalar_functions.js";
-<<<<<<< HEAD
 
 // Tensor module
 export { Tensor, type TensorLike } from "./tensor.js";
@@ -15,7 +14,5 @@ export * as tensorFunctions from "./tensor_functions.js";
 export { tensorMap, tensorZip, tensorReduce } from "./tensor_ops.js";
 export { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from "./fast_ops.js";
 
-
-=======
 export * from "./datasets.js"
->>>>>>> 3eec9ac (wip: runScalar.py port)
+export * from "./module.js"
