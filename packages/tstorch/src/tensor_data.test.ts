@@ -6,6 +6,9 @@ import {
     strides,
     shapeProduct,
     TensorData,
+    shapeBroadcast,
+    broadcastIndex,
+    IndexingError,
     type OutIndex,
 } from './tensor_data.js';
 
@@ -348,5 +351,170 @@ describe("TensorData.toString", () => {
     test("returns readable format", () => {
         const td = TensorData.zeros([2, 3]);
         expect(td.toString()).toBe('TensorData(shape=[2,3], strides=[3,1])');
+    });
+});
+
+// ============================================================
+// Task 2.2 - Tensor Broadcasting
+// ============================================================
+
+describe("shapeBroadcast", () => {
+    test("same shapes return same shape", () => {
+        expect(shapeBroadcast([2, 3], [2, 3])).toEqual([2, 3]);
+        expect(shapeBroadcast([5], [5])).toEqual([5]);
+        expect(shapeBroadcast([2, 3, 4], [2, 3, 4])).toEqual([2, 3, 4]);
+    });
+
+    test("scalar broadcast (size 1 to any)", () => {
+        // [1] broadcasts to [5]
+        expect(shapeBroadcast([1], [5])).toEqual([5]);
+        expect(shapeBroadcast([5], [1])).toEqual([5]);
+    });
+
+    test("vector to matrix (Rule 2 & 3: pad left with 1s)", () => {
+        // [3] broadcasts to [5, 3] (becomes [1, 3] then [5, 3])
+        expect(shapeBroadcast([5, 3], [3])).toEqual([5, 3]);
+        expect(shapeBroadcast([3], [5, 3])).toEqual([5, 3]);
+    });
+
+    test("Rule 1: dimension of 1 broadcasts to n", () => {
+        expect(shapeBroadcast([5, 1], [1, 3])).toEqual([5, 3]);
+        expect(shapeBroadcast([1, 3], [5, 1])).toEqual([5, 3]);
+    });
+
+    test("complex multi-dimensional broadcast", () => {
+        // From the guide: [2, 3, 1] and [7, 2, 1, 5] => [7, 2, 3, 5]
+        expect(shapeBroadcast([2, 3, 1], [7, 2, 1, 5])).toEqual([7, 2, 3, 5]);
+    });
+
+    test("broadcast with many dimensions", () => {
+        expect(shapeBroadcast([1, 5, 1], [3, 1, 4])).toEqual([3, 5, 4]);
+        expect(shapeBroadcast([2, 1, 3, 1], [4, 1, 5])).toEqual([2, 4, 3, 5]);
+    });
+
+    test("single element tensor broadcasts to any shape", () => {
+        expect(shapeBroadcast([1], [2, 3, 4])).toEqual([2, 3, 4]);
+        expect(shapeBroadcast([2, 3, 4], [1])).toEqual([2, 3, 4]);
+        expect(shapeBroadcast([1, 1, 1], [2, 3, 4])).toEqual([2, 3, 4]);
+    });
+
+    test("throws IndexingError for incompatible shapes", () => {
+        // [5, 3] and [4] cannot broadcast (3 != 4, neither is 1)
+        expect(() => shapeBroadcast([5, 3], [4])).toThrow(IndexingError);
+        
+        // [2, 3] and [3, 2] cannot broadcast
+        expect(() => shapeBroadcast([2, 3], [3, 2])).toThrow(IndexingError);
+        
+        // [5] and [3] cannot broadcast
+        expect(() => shapeBroadcast([5], [3])).toThrow(IndexingError);
+    });
+
+    test("error message includes shape info", () => {
+        expect(() => shapeBroadcast([5, 3], [4])).toThrow(/5, 3.*4/);
+    });
+
+    test.prop([anyShape])("broadcasting shape with itself returns same shape", (shape) => {
+        const result = shapeBroadcast(shape, shape);
+        expect(result).toEqual([...shape]);
+    });
+
+    test.prop([anyShape])("broadcasting with [1] returns original shape", (shape) => {
+        const result = shapeBroadcast(shape, [1]);
+        expect(result).toEqual([...shape]);
+    });
+
+    test.prop([shape2D, shape2D])("broadcast is commutative when valid", (s1, s2) => {
+        // Only test when broadcast is valid
+        try {
+            const result1 = shapeBroadcast(s1, s2);
+            const result2 = shapeBroadcast(s2, s1);
+            expect(result1).toEqual(result2);
+        } catch (e) {
+            // If one throws, both should throw
+            expect(() => shapeBroadcast(s2, s1)).toThrow();
+        }
+    });
+});
+
+describe("broadcastIndex", () => {
+    test("same shape: index unchanged", () => {
+        const outIndex: OutIndex = [0, 0];
+        broadcastIndex([1, 2], [3, 4], [3, 4], outIndex);
+        expect(outIndex).toEqual([1, 2]);
+    });
+
+    test("smaller shape with fewer dimensions", () => {
+        // shape [3] broadcast to bigShape [5, 3]
+        // bigIndex [2, 1] => outIndex [1]
+        const outIndex: OutIndex = [0];
+        broadcastIndex([2, 1], [5, 3], [3], outIndex);
+        expect(outIndex).toEqual([1]);
+    });
+
+    test("dimension of 1 maps to index 0", () => {
+        // shape [1, 3] broadcast to bigShape [5, 3]
+        // bigIndex [2, 1] => outIndex [0, 1] (first dim was 1)
+        const outIndex: OutIndex = [0, 0];
+        broadcastIndex([2, 1], [5, 3], [1, 3], outIndex);
+        expect(outIndex).toEqual([0, 1]);
+    });
+
+    test("multiple broadcast dimensions", () => {
+        // shape [1, 1] broadcast to bigShape [5, 3]
+        // Any bigIndex maps to [0, 0]
+        const outIndex: OutIndex = [0, 0];
+        broadcastIndex([2, 1], [5, 3], [1, 1], outIndex);
+        expect(outIndex).toEqual([0, 0]);
+        
+        broadcastIndex([4, 2], [5, 3], [1, 1], outIndex);
+        expect(outIndex).toEqual([0, 0]);
+    });
+
+    test("3D to 2D broadcast", () => {
+        // shape [3, 1] broadcast to bigShape [5, 3, 4]
+        // bigIndex [2, 1, 3] => outIndex [1, 0]
+        const outIndex: OutIndex = [0, 0];
+        broadcastIndex([2, 1, 3], [5, 3, 4], [3, 1], outIndex);
+        expect(outIndex).toEqual([1, 0]);
+    });
+
+    test("complex 4D broadcast", () => {
+        // shape [2, 1, 5] broadcast to bigShape [7, 2, 3, 5]
+        // bigIndex [3, 1, 2, 4] => outIndex [1, 0, 4]
+        const outIndex: OutIndex = [0, 0, 0];
+        broadcastIndex([3, 1, 2, 4], [7, 2, 3, 5], [2, 1, 5], outIndex);
+        expect(outIndex).toEqual([1, 0, 4]);
+    });
+
+    test("scalar broadcast (shape [1])", () => {
+        // shape [1] broadcast to bigShape [2, 3, 4]
+        // Any bigIndex maps to [0]
+        const outIndex: OutIndex = [0];
+        broadcastIndex([1, 2, 3], [2, 3, 4], [1], outIndex);
+        expect(outIndex).toEqual([0]);
+    });
+
+    test.prop([shape2D])("broadcastIndex with same shape copies index", (shape) => {
+        const size = shapeProduct(shape);
+        const bigIndex: OutIndex = [0, 0];
+        const outIndex: OutIndex = [0, 0];
+
+        for (let i = 0; i < size; i++) {
+            toIndex(i, shape, bigIndex);
+            broadcastIndex(bigIndex, shape, shape, outIndex);
+            expect(outIndex).toEqual(bigIndex);
+        }
+    });
+
+    test.prop([shape2D])("broadcastIndex with [1,1] always gives [0,0]", (shape) => {
+        const size = shapeProduct(shape);
+        const bigIndex: OutIndex = [0, 0];
+        const outIndex: OutIndex = [0, 0];
+
+        for (let i = 0; i < size; i++) {
+            toIndex(i, shape, bigIndex);
+            broadcastIndex(bigIndex, shape, [1, 1], outIndex);
+            expect(outIndex).toEqual([0, 0]);
+        }
     });
 });
