@@ -1,13 +1,15 @@
-import { Scalar, datasets } from "tstorch";
+import { Scalar, datasets, SGD, Optimizer } from "tstorch";
+import { Module } from "../tstorch/dist/module.js";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
-class Network {
+class Network extends Module {
   layer1: Linear;
   layer2: Linear
 
   constructor(hiddenLayers: number) {
+    super();
     // Take 2 inputs - Point (x,y), process through hidden layers, return 1 output
     this.layer1 = new Linear(2, hiddenLayers);
     this.layer2 = new Linear(hiddenLayers, 1);
@@ -30,14 +32,14 @@ class Network {
   }
 }
 
-class Linear {
+class Linear extends Module {
   inSize: number;
   outSize: number;
   weights: Scalar[][];
   bias: Scalar[];  
   
   constructor(inSize: number, outSize: number) {
-    // we get errors but they should not be here anymore when we're done 1.5
+    super();
     this.inSize = inSize;
     this.outSize = outSize;
 
@@ -67,14 +69,20 @@ class Linear {
 class ScalarTrain {
   hiddenLayers: number;
   model: Network;
+  learningRate: number;
+  maxEpochs: number;
 
   constructor(hiddenLayers: number) {
     this.hiddenLayers = hiddenLayers;
     this.model = new Network(hiddenLayers);
   }
 
-  train(data: Graph, learningRate: number, maxEpochs = 500) {    
-    throw new Error("Train loop depends on Task 1.5 implementation");
+  train(data: Graph, learningRate: number, maxEpochs: number = 500) {
+    // zero out gradients
+    this.learningRate = learningRate;
+    this.maxEpochs = maxEpochs;
+    this.model = new Network(this.hiddenLayers);
+    const optim = new SGD(this.model.parameters(), learningRate);
   }
 }
 
