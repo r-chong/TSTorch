@@ -74,10 +74,6 @@ class ScalarTrain {
   }
 
   train(data: Graph, learningRate: number, maxEpochs = 500) {
-    // zero out gradients
-    // how do we zero out gradients?
-    // set the value of the gradient scalars to zero?
-
     throw new Error("Train loop depends on Task 1.5 implementation");
   }
 }
