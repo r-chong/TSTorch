@@ -13,7 +13,24 @@ export class Module {
     private parameters: Record<string, BaseParameter> = {};
     training: boolean = true;
 
-    constructor() {}
+    // Automatically register submodules and parameters
+    constructor() {
+        return new Proxy(this, {
+            set: (target, key: string, value) => {
+                if (value instanceof Module) {
+                    target.modules[key] = value;
+                } 
+                else if (value instanceof Parameter) {
+                    target.parameters[key] = value;
+                }
+                else {
+                    (target as any)[key] = value;
+                }
+
+                return true;
+            }
+        })
+    }
 }
 
 // Non-generic base class to type Parameter class yet not Module class
