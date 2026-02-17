@@ -66,6 +66,10 @@ class Linear extends Module {
   }
 }
 
+function defaultLogFn(epoch, totalLoss, correct) {
+  console.log("Epoch ", epoch, " loss ", totalLoss, " correct ", correct)
+}
+
 class ScalarTrain {
   hiddenLayers: number;
   model: Network;
@@ -77,12 +81,56 @@ class ScalarTrain {
     this.model = new Network(hiddenLayers);
   }
 
-  train(data: Graph, learningRate: number, maxEpochs: number = 500) {
-    // zero out gradients
+  train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn) {
     this.learningRate = learningRate;
     this.maxEpochs = maxEpochs;
     this.model = new Network(this.hiddenLayers);
     const optim = new SGD(this.model.parameters(), learningRate);
+
+    const losses = [];
+
+    for (let epoch = 0; epoch < this.maxEpochs + 1; ++epoch) {
+      let totalLoss = 0.0;
+      let correct = 0;
+
+      // zero out gradients each epoch
+      optim.zeroGrad();
+
+      // forward pass
+      let loss = new Scalar(0);
+      for (let i = 0; i < data.N; ++i) {
+        const [rx1, rx2] = data.X[i];
+        const y = data.y[i];
+        const x1 = new Scalar(rx1);
+        const x2 = new Scalar(rx2);
+        const out = this.model.forward([x1, x2]);
+        let prob = new Scalar(0);
+
+        if (y == 1) {
+          prob = out;
+          if (out.data > 0.5) {
+            correct += 1; 
+          }
+        } else {
+          prob = out.add(1.0).mul(-1);
+          if (out.data < 0.5) {
+            correct += 1;
+          }
+        }
+
+        loss = prob.log().mul(-1);
+        loss.div(data.N).backward();
+        totalLoss += loss.data;
+
+        // update gradient descent
+        optim.step();
+
+        // log every 10th epoch
+        if (epoch % 10 == 0 || epoch == maxEpochs) {
+          logFn(epoch, totalLoss, correct);
+        }
+      }
+    }
   }
 }
 
