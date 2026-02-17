@@ -1,5 +1,4 @@
-import { Scalar, datasets, SGD, Optimizer, Parameter } from "tstorch";
-import { Module } from "../tstorch/dist/module.js";
+import { Scalar, datasets, SGD, Module, Parameter, Mul, add } from "tstorch";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
