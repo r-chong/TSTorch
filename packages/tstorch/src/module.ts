@@ -8,6 +8,8 @@ Attributes:
     training : Whether the module is in training mode or evaluation mode
 */
 
+import type { Tensor } from "./tensor.js";
+
 export class Module<P extends BaseParameter = BaseParameter> {
     protected _modules: Record<string, Module<P>> = {};
     protected _parameters: Record<string, P> = {};
@@ -81,8 +83,7 @@ export abstract class BaseParameter {
     name?: string | undefined;
 }
 
-// TODO: default T=Tensor when merging into Tensor
-export class Parameter<T> extends BaseParameter {
+export class Parameter<T=Tensor> extends BaseParameter {
     value: T;
 
     constructor(value: T, name?: string) {
