@@ -41,8 +41,8 @@ class Linear {
     this.inSize = inSize;
     this.outSize = outSize;
 
-    this.weights = Array.from({ length: inSize }, () =>
-      Array.from({ length: outSize }, () => new Scalar(2 * (Math.random() - 0.5)))
+    this.weights = Array.from({ length: outSize }, () =>
+      Array.from({ length: inSize }, () => new Scalar(2 * (Math.random() - 0.5)))
     );
 
     this.bias = Array.from({ length: outSize }, () => new Scalar(2 * (Math.random() - 0.5)));
