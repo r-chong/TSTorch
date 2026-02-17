@@ -41,8 +41,8 @@ class Linear {
     this.inSize = inSize;
     this.outSize = outSize;
 
-    this.weights = Array.from({ length: inSize }, () =>
-      Array.from({ length: outSize }, () => new Scalar(2 * (Math.random() - 0.5)))
+    this.weights = Array.from({ length: outSize }, () =>
+      Array.from({ length: inSize }, () => new Scalar(2 * (Math.random() - 0.5)))
     );
 
     this.bias = Array.from({ length: outSize }, () => new Scalar(2 * (Math.random() - 0.5)));
@@ -55,7 +55,7 @@ class Linear {
       let result = this.bias[i];
 
       for (let j = 0; j < this.inSize; ++j) {
-        result.add(this.weights[i][j].mul(inputs[j]));
+        result = result.add(this.weights[i][j].mul(inputs[j]));
       }
       outputs.push(result);
     }
@@ -74,10 +74,6 @@ class ScalarTrain {
   }
 
   train(data: Graph, learningRate: number, maxEpochs = 500) {
-    // zero out gradients
-    // how do we zero out gradients?
-    // set the value of the gradient scalars to zero?
-
     throw new Error("Train loop depends on Task 1.5 implementation");
   }
 }
