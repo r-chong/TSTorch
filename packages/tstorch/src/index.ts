@@ -12,8 +12,6 @@ export { TensorData, IndexingError, type Shape, type Strides, type Index, type O
 export { TensorContext, TensorHistory, TensorFunction, Neg as TensorNeg, Sigmoid as TensorSigmoid, ReLU as TensorReLU, Log as TensorLog, Exp as TensorExp, Inv as TensorInv, Add as TensorAdd, Mul as TensorMul, LT as TensorLT, EQ as TensorEQ, Sum as TensorSum, Permute as TensorPermute, View as TensorView, Contiguous as TensorContiguous } from "./tensor_functions.js";
 export * as tensorFunctions from "./tensor_functions.js";
 export { tensorMap, tensorZip, tensorReduce } from "./tensor_ops.js";
-
-
-
+export { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from "./fast_ops.js";
 
 
