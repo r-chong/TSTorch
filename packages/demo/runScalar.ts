@@ -55,7 +55,7 @@ class Linear {
       let result = this.bias[i];
 
       for (let j = 0; j < this.inSize; ++j) {
-        result.add(this.weights[i][j].mul(inputs[j]));
+        result = result.add(this.weights[i][j].mul(inputs[j]));
       }
       outputs.push(result);
     }
