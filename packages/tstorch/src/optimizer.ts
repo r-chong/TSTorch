@@ -1,7 +1,8 @@
-export type ParameterValue = Scalar;
-
 import { Scalar } from "./scalar.js";
 import { Parameter } from "./module.js";
+import type { Tensor } from "./tensor.js";
+
+export type ParameterValue = Scalar | Tensor;
 
 export class Optimizer {
     parameters: Parameter<ParameterValue>[];
