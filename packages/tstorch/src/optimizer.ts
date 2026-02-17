@@ -1,4 +1,4 @@
-export type ParameterValue = Scalar; // TODO: add tensor
+export type ParameterValue = Scalar;
 
 import { Scalar } from "./scalar.js";
 import { Parameter } from "./module.js";
