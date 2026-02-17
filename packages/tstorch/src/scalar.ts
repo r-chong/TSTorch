@@ -1,4 +1,4 @@
-import { Context } from "./autodiff.js";
+import { backPropagate, Context } from "./autodiff.js";
 import { zip } from "./operators.js"
 import {
     ScalarHistory, 
@@ -133,11 +133,17 @@ export class Scalar {
         if (!h.ctx) throw new Error("Missing ctx in scalar history");
         if (!h.inputs) throw new Error("Missing inputs in scalar history");
 
-        // @ts-ignore as 1.4 not implemented yet
         const gradients: number[] = h.lastFn.backward(h.ctx, dOut);
 
         const inputs = h.inputs as Scalar[];
         return zip(inputs, gradients);
+    }
+
+    backward(dOut?: number) {
+        if (dOut == null || dOut == undefined) {
+            dOut = 1.0;
+        }
+        backPropagate(this, dOut);
     }
 
     isLeaf(): boolean {
