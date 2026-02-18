@@ -108,10 +108,10 @@ class ScalarTrain {
         if (y == 1) {
           prob = out;
           if (out.data > 0.5) {
-            correct += 1; 
+            correct += 1;
           }
         } else {
-          prob = out.add(1.0).mul(-1);
+          prob = out.mul(-1).add(1.0);
           if (out.data < 0.5) {
             correct += 1;
           }
@@ -120,6 +120,8 @@ class ScalarTrain {
         loss = prob.log().mul(-1);
         loss.div(data.N).backward();
         totalLoss += loss.data;
+
+        losses.push(totalLoss);
 
         // update gradient descent
         optim.step();

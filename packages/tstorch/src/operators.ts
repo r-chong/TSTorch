@@ -1,3 +1,5 @@
+const EPS = 1e-12;
+
 export function mul(x: number, y: number):number {
     return x * y;
 }
@@ -36,7 +38,8 @@ export function sigmoid(x: number):number {
     if (x >= 0) {
         return (1 / (1 + Math.exp(-x)));
     } else {
-        return (Math.exp(x) / (1 + Math.exp(x)));
+        const ex = Math.exp(x);
+        return (ex / (1 + ex));
     }
 }
 
@@ -44,10 +47,10 @@ export function relu(x: number):number {
     return x > 0 ? x : 0;
 }
 
-const EPS = 1e-6
-
 export function log(x: number):number {
-    return Math.log(x); 
+    // numerical stabilization with JS math
+    const safe = Math.max(x, EPS);
+    return Math.log(safe); 
 }
 
 export function exp(x: number):number {
