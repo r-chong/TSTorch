@@ -80,6 +80,11 @@ class ScalarTrain {
     this.model = new Network(hiddenLayers);
   }
 
+  // for testing, run one forward pass of the network on a single datapoint
+  runOne(x: Point) {
+    return this.model.forward([new Scalar(x[0],undefined,"x1"), new Scalar(x[1],undefined,"x2")]);
+  }
+
   train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn) {
     this.learningRate = learningRate;
     this.maxEpochs = maxEpochs;
