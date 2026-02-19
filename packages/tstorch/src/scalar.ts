@@ -25,7 +25,7 @@ let _varCount = 0;
  * Behaves like a regular number but records operations for autodiff.
  */
 export class Scalar {
-    readonly data: number;
+    data: number;
     readonly history: ScalarHistory | null;
     readonly uniqueId: number;
     readonly name: string;
