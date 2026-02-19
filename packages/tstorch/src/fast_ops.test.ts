@@ -1,8 +1,11 @@
 import { test, fc } from '@fast-check/jest';
 import { describe, expect, afterAll } from '@jest/globals';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from './fast_ops.js';
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
-import { TensorData, shapeProduct, createSharedStorage } from './tensor_data.js';
+import { TensorData, shapeProduct } from './tensor_data.js';
 import { Tensor } from './tensor.js';
 
 // Tear down worker pool so Jest can exit cleanly
@@ -699,6 +702,59 @@ describe("large tensor parallel execution", () => {
 
         for (let i = 0; i < rows; i++) {
             expect(output.storage[i]).toBe(cols);
+        }
+    });
+});
+
+// ============================================================
+// Task 3.1 - Dispatch parity across PARALLEL_THRESHOLD
+// ============================================================
+
+describe("dispatch parity across PARALLEL_THRESHOLD", () => {
+    test("training weights match below/above threshold", () => {
+        const here = dirname(fileURLToPath(import.meta.url));
+        const packageRoot = join(here, '..');
+        const demoRoot = join(packageRoot, '..', 'demo');
+        const scriptPath = join(demoRoot, 'dispatch_parity.ts');
+        const loaderPath = join(packageRoot, 'scripts', 'ts-loader.mjs');
+
+        const env = { ...process.env };
+        delete env['JEST_WORKER_ID'];
+        delete env['TSTORCH_DISABLE_PARALLEL'];
+
+        // Run outside Jest so worker threads can use SharedArrayBuffer.
+        const result = spawnSync(
+            process.execPath,
+            ['--no-warnings', '--loader', loaderPath, scriptPath],
+            {
+                cwd: demoRoot,
+                env,
+                encoding: 'utf8',
+                timeout: 30000,
+            },
+        );
+
+        if (result.error) {
+            throw result.error;
+        }
+        if (result.status !== 0) {
+            const stderr = result.stderr?.trim();
+            throw new Error(
+                `dispatch parity runner failed${stderr ? `: ${stderr}` : ''}`,
+            );
+        }
+
+        const output = result.stdout.trim();
+        expect(output).not.toBe('');
+
+        const { weightsBelow, weightsAbove } = JSON.parse(output) as {
+            weightsBelow: number[];
+            weightsAbove: number[];
+        };
+
+        expect(weightsAbove.length).toBe(weightsBelow.length);
+        for (let i = 0; i < weightsBelow.length; i++) {
+            expect(weightsAbove[i]).toBeCloseTo(weightsBelow[i], 8);
         }
     });
 });
