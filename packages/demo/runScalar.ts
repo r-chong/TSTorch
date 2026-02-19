@@ -27,7 +27,8 @@ class Network extends Module<Parameter<Scalar>> {
     // return Scalar array of len 1
     const outputs2: Scalar[] = this.layer2.forward(relu1);
 
-    return outputs2[0];
+    // get final number and convert to probability
+    return outputs2[0].sigmoid();
   }
 }
 
@@ -47,6 +48,16 @@ class Linear extends Module {
     );
 
     this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))));
+
+    // register weights and bias as parameters in module
+    // note that using our proxy autoregisters but not if it's in an array
+    for (let i = 0; i < outSize; i++) {
+      this[`b_${i}`] = this.bias[i];
+
+      for (let j = 0; j < inSize; j++) {
+        this[`w_${i}_${j}`] = this.weights[i][j];
+      }
+    }
   }
 
   forward(inputs: Scalar[]): Scalar[] {
