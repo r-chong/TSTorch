@@ -34,8 +34,8 @@ class Network extends Module<Parameter<Scalar>> {
 class Linear extends Module {
   inSize: number;
   outSize: number;
-  weights: Scalar[][];
-  bias: Scalar[];  
+  weights: Parameter<Scalar>[][];
+  bias: Parameter<Scalar>[];  
   
   constructor(inSize: number, outSize: number) {
     super();
@@ -43,20 +43,20 @@ class Linear extends Module {
     this.outSize = outSize;
 
     this.weights = Array.from({ length: outSize }, () =>
-      Array.from({ length: inSize }, () => new Scalar(2 * (Math.random() - 0.5)))
+      Array.from({ length: inSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))))
     );
 
-    this.bias = Array.from({ length: outSize }, () => new Scalar(2 * (Math.random() - 0.5)));
+    this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))));
   }
 
   forward(inputs: Scalar[]): Scalar[] {
     const outputs: Scalar[] = [];
 
     for (let i = 0; i < this.outSize; ++i) {
-      let result = this.bias[i];
+      let result = this.bias[i].value.add(0);
 
       for (let j = 0; j < this.inSize; ++j) {
-        result = result.add(this.weights[i][j].mul(inputs[j]));
+        result = result.add(this.weights[i][j].value.mul(inputs[j]));
       }
       outputs.push(result);
     }
@@ -116,14 +116,14 @@ class ScalarTrain {
             correct += 1;
           }
         } else {
-          prob = out.mul(-1).add(1.0);
+          prob = out.mul(new Scalar(-1)).add(new Scalar(1.0));
           if (out.data < 0.5) {
             correct += 1;
           }
         }
 
         loss = prob.log().mul(-1).div(data.N);
-        totalLoss = totalLoss.add(loss.data);
+        totalLoss = totalLoss.add(loss);
         // losses.push(totalLoss);
       }
 
