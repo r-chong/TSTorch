@@ -58,8 +58,7 @@ export function exp(x: number):number {
 }
 
 export function logBack(x: number, d: number):number {
-    // since Math.log is the natural log, derivative is 1/x
-    return d * (1 / x);
+    return d * (1 / max(x, EPS))
 }
 
 export function inv(x: number):number {
