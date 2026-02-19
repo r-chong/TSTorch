@@ -28,7 +28,7 @@ class Network extends Module<Parameter<Scalar>> {
     const outputs2: Scalar[] = this.layer2.forward(relu1);
 
     // get final number and convert to probability
-    return outputs2[0].sigmoid();
+    return outputs2[0];
   }
 }
 
@@ -112,28 +112,26 @@ class ScalarTrain {
       optim.zeroGrad();
 
       // forward pass
-      let loss = new Scalar(0);
+      let loss: Scalar;
       for (let i = 0; i < data.N; ++i) {
         const [rx1, rx2] = data.X[i];
         const y = data.y[i];
         const x1 = new Scalar(rx1);
         const x2 = new Scalar(rx2);
-        const out = this.model.forward([x1, x2]);
-        let prob = new Scalar(0);
+        const x = this.model.forward([x1, x2]);
+
+        const pred = x.data > 0 ? 1 : 0;
+        if (pred === y) correct++;
 
         if (y == 1) {
-          prob = out;
-          if (out.data > 0.5) {
-            correct += 1;
-          }
+          // log(1 + exp(-x))
+          loss = x.neg().exp().add(1).log();
         } else {
-          prob = out.mul(new Scalar(-1)).add(new Scalar(1.0));
-          if (out.data < 0.5) {
-            correct += 1;
-          }
+          // log(1 + exp(x))
+          loss = x.exp().add(1).log();
         }
 
-        loss = prob.log().mul(-1).div(data.N);
+        loss = loss.div(data.N);
         totalLoss = totalLoss.add(loss);
         // losses.push(totalLoss);
       }
