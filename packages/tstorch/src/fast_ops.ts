@@ -17,7 +17,10 @@ import {
     broadcastIndex,
 } from './tensor_data.js';
 
-const NUM_WORKERS = cpus().length;
+const NUM_WORKERS = Math.max(1, cpus().length);
+
+// Parallelism is across independent output elements, not within a single
+// reduction, so both paths produce bitwise-identical results for the same fn.
 const PARALLEL_THRESHOLD = 4096;
 
 function shapesEqual(a: Shape, b: Shape): boolean {
@@ -45,6 +48,7 @@ class WorkerPool {
         this.syncBuffer = new SharedArrayBuffer(numWorkers * Int32Array.BYTES_PER_ELEMENT);
         this.syncArray = new Int32Array(this.syncBuffer);
 
+        // .ts in dev (Node 25+ type-stripping), .js after tsc build
         const currentDir = dirname(fileURLToPath(import.meta.url));
         const tsPath = join(currentDir, 'fast_ops_worker.ts');
         const jsPath = join(currentDir, 'fast_ops_worker.js');
@@ -61,7 +65,7 @@ class WorkerPool {
         });
     }
 
-    
+    /** Split [0, size) across workers; block until all signal via Atomics. */
     parallelFor(
         size: number,
         taskFactory: (start: number, end: number) => object,
@@ -99,6 +103,7 @@ class WorkerPool {
 
 let _pool: WorkerPool | null | undefined = undefined;
 
+// SharedArrayBuffer can't cross Jest's VM context boundary to real workers.
 const PARALLEL_DISABLED = typeof process !== 'undefined' &&
     (process.env['JEST_WORKER_ID'] !== undefined ||
      process.env['TSTORCH_DISABLE_PARALLEL'] !== undefined);
@@ -115,6 +120,7 @@ function getPool(): WorkerPool | null {
     return _pool;
 }
 
+/** Terminate the worker pool (call in test teardown so Node can exit). */
 export function destroyPool(): void {
     if (_pool) {
         _pool.terminate();
@@ -126,6 +132,13 @@ function isShared(storage: Storage): boolean {
     return storage.buffer instanceof SharedArrayBuffer;
 }
 
+/**
+ * Parallel tensor map. Optimizations: main loop in parallel when
+ * size >= PARALLEL_THRESHOLD; stride-aligned fast path avoids all indexing.
+ *
+ * `fn` must be a pure function (no captured variables) -- workers reconstruct
+ * it from `fn.toString()` via `new Function()`.
+ */
 export function fastTensorMap(
     fn: (x: number) => number,
 ): (
@@ -194,6 +207,10 @@ export function fastTensorMap(
     };
 }
 
+/**
+ * Parallel tensor zip. Same optimizations and pure-function constraint
+ * as fastTensorMap; stride-aligned when all three tensors match.
+ */
 export function fastTensorZip(
     fn: (a: number, b: number) => number,
 ): (
@@ -278,6 +295,11 @@ export function fastTensorZip(
     };
 }
 
+/**
+ * Parallel tensor reduce. Outer loop (output elements) in parallel; inner
+ * reduction is sequential per element using stride-stepping. Same
+ * pure-function constraint as fastTensorMap.
+ */
 export function fastTensorReduce(
     fn: (acc: number, x: number) => number,
 ): (

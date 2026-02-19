@@ -3,6 +3,7 @@ import { describe, expect, afterAll } from '@jest/globals';
 import { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from './fast_ops.js';
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
 import { TensorData, shapeProduct, createSharedStorage } from './tensor_data.js';
+import { Tensor } from './tensor.js';
 
 // Tear down worker pool so Jest can exit cleanly
 afterAll(() => {
@@ -699,5 +700,159 @@ describe("large tensor parallel execution", () => {
         for (let i = 0; i < rows; i++) {
             expect(output.storage[i]).toBe(cols);
         }
+    });
+});
+
+// ============================================================
+// Task 3.1 - Backward pass / gradient parity
+//
+// These tests verify that the autograd system produces correct
+// gradients when the forward pass runs through fast_ops. Since
+// tensor_functions.ts now imports from fast_ops, all Tensor-level
+// operations (neg, sigmoid, add, mul, sum, etc.) use the fast
+// kernels. We numerically verify gradients with finite differences
+// to ensure the backward pass is correct end-to-end.
+// ============================================================
+
+/**
+ * Numerically check gradient of a tensor function using finite differences.
+ * Mirrors minitorch's grad_check utility.
+ */
+function tensorGradCheck(
+    fn: (...tensors: Tensor[]) => Tensor,
+    ...inputs: Tensor[]
+): void {
+    const epsilon = 1e-5;
+
+    const output = fn(...inputs);
+    const scalarOutput = output.sum();
+    scalarOutput.backward();
+
+    for (let inputIdx = 0; inputIdx < inputs.length; inputIdx++) {
+        const input = inputs[inputIdx]!;
+        const grad = input.grad;
+        expect(grad).not.toBeNull();
+        expect(grad!.shape).toEqual(input.shape);
+
+        for (let i = 0; i < input.size; i++) {
+            const idx: number[] = [];
+            let remaining = i;
+            for (let d = input.dims - 1; d >= 0; d--) {
+                idx.unshift(remaining % input.shape[d]!);
+                remaining = Math.floor(remaining / input.shape[d]!);
+            }
+
+            const originalVal = input.get(idx);
+
+            input.set(idx, originalVal + epsilon);
+            const plusOutput = fn(...inputs).sum().item();
+
+            input.set(idx, originalVal - epsilon);
+            const minusOutput = fn(...inputs).sum().item();
+
+            input.set(idx, originalVal);
+
+            const numericalGrad = (plusOutput - minusOutput) / (2 * epsilon);
+            const analyticalGrad = grad!.get(idx);
+
+            expect(analyticalGrad).toBeCloseTo(numericalGrad, 3);
+        }
+
+        input.zero_grad_();
+    }
+}
+
+describe("backward pass through fast_ops", () => {
+    test("neg backward", () => {
+        const a = Tensor.rand([3, 4]);
+        tensorGradCheck((x) => x.neg(), a);
+    });
+
+    test("sigmoid backward", () => {
+        const a = Tensor.rand([3, 4]);
+        tensorGradCheck((x) => x.sigmoid(), a);
+    });
+
+    test("relu backward", () => {
+        const a = Tensor.tensor([[0.5, -0.3, 0.8], [1.2, -0.1, 0.4]]);
+        tensorGradCheck((x) => x.relu(), a);
+    });
+
+    test("exp backward", () => {
+        const a = Tensor.rand([2, 3]);
+        tensorGradCheck((x) => x.exp(), a);
+    });
+
+    test("log backward", () => {
+        const size = 12;
+        const storage = new Float64Array(size);
+        for (let i = 0; i < size; i++) storage[i] = Math.random() * 2 + 0.5;
+        const a = new Tensor(new TensorData(storage, [3, 4]));
+        tensorGradCheck((x) => x.log(), a);
+    });
+
+    test("add backward", () => {
+        const a = Tensor.rand([3, 4]);
+        const b = Tensor.rand([3, 4]);
+        tensorGradCheck((x, y) => x.add(y), a, b);
+    });
+
+    test("mul backward", () => {
+        const a = Tensor.rand([3, 4]);
+        const b = Tensor.rand([3, 4]);
+        tensorGradCheck((x, y) => x.mul(y), a, b);
+    });
+
+    test("sum backward", () => {
+        const a = Tensor.rand([3, 4]);
+        tensorGradCheck((x) => x.sum(0), a);
+    });
+
+    test("sum backward along dim 1", () => {
+        const a = Tensor.rand([3, 4]);
+        tensorGradCheck((x) => x.sum(1), a);
+    });
+
+    test("composite forward + backward: a * sigmoid(b) + a", () => {
+        const a = Tensor.rand([3, 4]);
+        const b = Tensor.rand([3, 4]);
+        tensorGradCheck((x, y) => x.mul(y.sigmoid()).add(x), a, b);
+    });
+
+    test("composite forward + backward: relu(a * b).sum()", () => {
+        const a = Tensor.tensor([[0.5, -0.3, 0.8], [1.2, -0.1, 0.4]]);
+        const b = Tensor.tensor([[1.0, 2.0, -1.0], [0.5, -2.0, 3.0]]);
+        tensorGradCheck((x, y) => x.mul(y).relu(), a, b);
+    });
+
+    test("broadcast backward: [3,1] + [1,4] -> [3,4]", () => {
+        const a = Tensor.rand([3, 1]);
+        const b = Tensor.rand([1, 4]);
+        tensorGradCheck((x, y) => x.add(y), a, b);
+    });
+
+    test("broadcast backward: [4] * [3,4] -> [3,4]", () => {
+        const a = Tensor.rand([4]);
+        const b = Tensor.rand([3, 4]);
+        tensorGradCheck((x, y) => x.mul(y), a, b);
+    });
+
+    test("chained reductions: sum(dim=1) then sum(dim=0)", () => {
+        const a = Tensor.rand([4, 5]);
+        tensorGradCheck((x) => x.sum(1).sum(0), a);
+    });
+
+    test("permute backward", () => {
+        const a = Tensor.rand([2, 3, 4]);
+        tensorGradCheck((x) => x.permute(2, 0, 1), a);
+    });
+
+    test("deep chain: sigmoid(relu(a * b + a).sum(1)).exp()", () => {
+        const a = Tensor.rand([3, 4]);
+        const b = Tensor.rand([3, 4]);
+        tensorGradCheck(
+            (x, y) => x.mul(y).add(x).relu().sum(1).sigmoid().exp(),
+            a, b,
+        );
     });
 });

@@ -1,5 +1,8 @@
 import { parentPort, workerData } from 'node:worker_threads';
 
+// Inlined from tensor_data.ts -- workers are separate V8 isolates and
+// can't import .js-extensioned modules from .ts source.
+
 function toIndex(ordinal: number, shape: number[], outIndex: number[]): void {
     let remaining = ordinal;
     for (let i = shape.length - 1; i >= 0; i--) {
@@ -82,15 +85,19 @@ interface ReduceTask {
 
 type Task = MapTask | ZipTask | ReduceTask;
 
-
 const { workerId, syncBuffer } = workerData as {
     workerId: number;
     syncBuffer: SharedArrayBuffer;
 };
 const syncArray = new Int32Array(syncBuffer);
 
+// fn must be pure (no closures) -- reconstructed from source via new Function()
+function reconstructFn<T>(source: string): T {
+    return new Function('return ' + source)() as T;
+}
+
 function handleMap(task: MapTask): void {
-    const fn = new Function('return ' + task.fnSource)() as (x: number) => number;
+    const fn = reconstructFn<(x: number) => number>(task.fnSource);
     const outStorage = new Float64Array(task.outBuffer);
     const inStorage = new Float64Array(task.inBuffer);
 
@@ -105,19 +112,14 @@ function handleMap(task: MapTask): void {
         for (let ordinal = task.start; ordinal < task.end; ordinal++) {
             toIndex(ordinal, task.outShape, outIndex);
             broadcastIndex(outIndex, task.outShape, task.inShape, inIndex);
-
-            const inPos = indexToPosition(inIndex, task.inStrides);
-            const outPos = indexToPosition(outIndex, task.outStrides);
-            outStorage[outPos] = fn(inStorage[inPos]!);
+            outStorage[indexToPosition(outIndex, task.outStrides)] =
+                fn(inStorage[indexToPosition(inIndex, task.inStrides)]!);
         }
     }
 }
 
 function handleZip(task: ZipTask): void {
-    const fn = new Function('return ' + task.fnSource)() as (
-        a: number,
-        b: number,
-    ) => number;
+    const fn = reconstructFn<(a: number, b: number) => number>(task.fnSource);
     const outStorage = new Float64Array(task.outBuffer);
     const aStorage = new Float64Array(task.aBuffer);
     const bStorage = new Float64Array(task.bBuffer);
@@ -135,20 +137,15 @@ function handleZip(task: ZipTask): void {
             toIndex(ordinal, task.outShape, outIndex);
             broadcastIndex(outIndex, task.outShape, task.aShape, aIndex);
             broadcastIndex(outIndex, task.outShape, task.bShape, bIndex);
-
-            const aPos = indexToPosition(aIndex, task.aStrides);
-            const bPos = indexToPosition(bIndex, task.bStrides);
-            const outPos = indexToPosition(outIndex, task.outStrides);
-            outStorage[outPos] = fn(aStorage[aPos]!, bStorage[bPos]!);
+            outStorage[indexToPosition(outIndex, task.outStrides)] =
+                fn(aStorage[indexToPosition(aIndex, task.aStrides)]!,
+                   bStorage[indexToPosition(bIndex, task.bStrides)]!);
         }
     }
 }
 
 function handleReduce(task: ReduceTask): void {
-    const fn = new Function('return ' + task.fnSource)() as (
-        acc: number,
-        x: number,
-    ) => number;
+    const fn = reconstructFn<(acc: number, x: number) => number>(task.fnSource);
     const outStorage = new Float64Array(task.outBuffer);
     const inStorage = new Float64Array(task.inBuffer);
     const reduceStride = task.inStrides[task.reduceDim]!;
@@ -178,15 +175,9 @@ function handleReduce(task: ReduceTask): void {
 
 parentPort!.on('message', (task: Task) => {
     switch (task.type) {
-        case 'map':
-            handleMap(task);
-            break;
-        case 'zip':
-            handleZip(task);
-            break;
-        case 'reduce':
-            handleReduce(task);
-            break;
+        case 'map':    handleMap(task);    break;
+        case 'zip':    handleZip(task);    break;
+        case 'reduce': handleReduce(task); break;
     }
 
     Atomics.store(syncArray, workerId, 1);
