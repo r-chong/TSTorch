@@ -9,6 +9,7 @@ Attributes:
 */
 
 import type { Tensor } from "./tensor.js";
+import { Scalar } from "./scalar.js";
 
 export class Module<P extends BaseParameter = BaseParameter> {
     protected _modules: Record<string, Module<P>> = {};
@@ -93,6 +94,13 @@ export class Parameter<T=Tensor> extends BaseParameter {
         if (name) {
             this.name = name;
         }
+    }
+
+    get grad() {
+        if (this.value instanceof Scalar) {
+            return this.value.derivative ?? 0;
+        }
+        return 0;
     }
 
     update(v: T) {
