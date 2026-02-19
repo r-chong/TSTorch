@@ -91,10 +91,10 @@ class ScalarTrain {
     this.model = new Network(this.hiddenLayers);
     const optim = new SGD(this.model.parameters(), learningRate);
 
-    const losses = [];
+    // const losses = [];
 
     for (let epoch = 1; epoch < this.maxEpochs + 1; ++epoch) {
-      let totalLoss = 0.0;
+      let totalLoss = new Scalar(0);
       let correct = 0;
 
       // zero out gradients each epoch
@@ -122,19 +122,20 @@ class ScalarTrain {
           }
         }
 
-        loss = prob.log().mul(-1);
-        loss.div(data.N).backward();
-        totalLoss += loss.data;
+        loss = prob.log().mul(-1).div(data.N);
+        totalLoss = totalLoss.add(loss.data);
+        // losses.push(totalLoss);
+      }
 
-        losses.push(totalLoss);
+      // backward pass on accumulated loss
+      totalLoss.backward();
 
-        // update gradient descent
-        optim.step();
+      // update gradient descent
+      optim.step();
 
-        // log every 10th epoch
-        if (epoch % 10 == 0 || epoch == maxEpochs) {
-          logFn(epoch, totalLoss, correct);
-        }
+      // log every 10th epoch
+      if (epoch % 10 == 0 || epoch == maxEpochs) {
+        logFn(epoch, totalLoss.data, correct);
       }
     }
   }
