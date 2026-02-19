@@ -155,6 +155,17 @@ export default function runScalar() {
   const HIDDEN = 2;
   const RATE = 0.5;
 
-  const data = datasets["Simple"](PTS) as Graph;
-  new ScalarTrain(HIDDEN).train(data, RATE);
+  const data1 = datasets["Simple"](PTS) as Graph;
+  const data2 = datasets["Diag"](PTS) as Graph;
+  const data3 = datasets["Split"](PTS) as Graph;
+  const data4 = datasets["Xor"](PTS) as Graph;
+  const data5 = datasets["Circle"](PTS) as Graph;
+  const data6 = datasets["Spiral"](PTS) as Graph;
+
+  new ScalarTrain(HIDDEN).train(data1, RATE);
+  new ScalarTrain(HIDDEN).train(data2, RATE);
+  new ScalarTrain(HIDDEN).train(data3, RATE);
+  new ScalarTrain(HIDDEN).train(data4, RATE);
+  new ScalarTrain(HIDDEN).train(data5, RATE);
+  new ScalarTrain(HIDDEN).train(data6, RATE);
 }
