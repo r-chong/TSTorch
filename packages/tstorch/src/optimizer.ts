@@ -46,10 +46,8 @@ export class SGD extends Optimizer {
 
         // Check for derivative (Scalar-like objects)
         if (p.value instanceof Scalar) {
-            if (p.value.derivative !== null && p.value.derivative !== undefined) {
-                // p.update(Scalar(p.value.data - this.lr * p.value.derivative))
-                p.update(new Scalar(p.value.data - this.lr * p.value.derivative));
-            }
+            const grad = p.value.derivative ?? 0;
+            p.update(new Scalar(p.value.data - this.lr * grad));
         }
     }
 }
