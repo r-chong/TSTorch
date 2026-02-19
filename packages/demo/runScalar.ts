@@ -88,7 +88,7 @@ class ScalarTrain {
 
     const losses = [];
 
-    for (let epoch = 0; epoch < this.maxEpochs + 1; ++epoch) {
+    for (let epoch = 1; epoch < this.maxEpochs + 1; ++epoch) {
       let totalLoss = 0.0;
       let correct = 0;
 
