@@ -50,6 +50,11 @@ export function strides(shape: Shape): number[] {
     return result;
 }
 
+export function createSharedStorage(size: number): Storage {
+    const buffer = new SharedArrayBuffer(size * Float64Array.BYTES_PER_ELEMENT);
+    return new Float64Array(buffer);
+}
+
 export class TensorData {
     readonly storage: Storage;
     readonly shape: Shape;
@@ -77,7 +82,7 @@ export class TensorData {
 
     static zeros(shape: Shape): TensorData {
         const size = shapeProduct(shape);
-        const storage = new Float64Array(size);
+        const storage = createSharedStorage(size);
         return new TensorData(storage, shape);
     }
 

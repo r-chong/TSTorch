@@ -8,7 +8,7 @@ import {
     shapeBroadcast,
     strides,
 } from './tensor_data.js';
-import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
+import { fastTensorMap as tensorMap, fastTensorZip as tensorZip, fastTensorReduce as tensorReduce } from './fast_ops.js';
 import * as operators from './operators.js'
 import { Tensor } from './tensor.js';
 

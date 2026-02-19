@@ -1,3 +1,4 @@
-import { Scalar } from "tstorch";
+import { runDispatchParity } from "./dispatch_parity.js";
 
-console.log(Scalar);
+const result = runDispatchParity();
+console.log(result);
