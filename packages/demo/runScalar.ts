@@ -143,7 +143,7 @@ class ScalarTrain {
       optim.step();
 
       // log every 10th epoch
-      if (epoch % 10 == 0 || epoch == maxEpochs) {
+      if (epoch % 500 == 0 || epoch == maxEpochs) {
         logFn(epoch, totalLoss.data, correct);
       }
     }
@@ -152,7 +152,6 @@ class ScalarTrain {
 
 export default function runScalar() {
   const PTS = 50;
-  const HIDDEN = 2;
   const RATE = 0.5;
 
   const data1 = datasets["Simple"](PTS) as Graph;
@@ -162,10 +161,22 @@ export default function runScalar() {
   const data5 = datasets["Circle"](PTS) as Graph;
   const data6 = datasets["Spiral"](PTS) as Graph;
 
-  new ScalarTrain(HIDDEN).train(data1, RATE);
-  new ScalarTrain(HIDDEN).train(data2, RATE);
-  new ScalarTrain(HIDDEN).train(data3, RATE);
-  new ScalarTrain(HIDDEN).train(data4, RATE);
-  new ScalarTrain(HIDDEN).train(data5, RATE);
-  new ScalarTrain(HIDDEN).train(data6, RATE);
+  console.log("=== Simple [4] ===");
+  new ScalarTrain(4).train(data1, 0.5);
+
+  console.log("\n=== Diag [4] ===");
+  new ScalarTrain(4).train(data2, 0.5);
+
+  console.log("\n=== Split [8] ===");
+  new ScalarTrain(8).train(data3, 0.5);
+
+  console.log("\n=== Xor [8] ===");
+  new ScalarTrain(8).train(data4, 0.5);
+
+  console.log("\n=== Circle [8, 8] ===");
+  new ScalarTrain(8).train(data5, 0.5, 1000);
+
+  console.log("\n=== Circle [8, 8] ===");
+  new ScalarTrain(8).train(data6, 0.5, 1000);
+
 }
