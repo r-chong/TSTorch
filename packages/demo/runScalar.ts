@@ -1,38 +1,35 @@
-import { Scalar, datasets, SGD, Module, Parameter, Mul, add } from "tstorch";
+import { Scalar, datasets, SGD, Adam, Optimizer, Module, Parameter } from "tstorch";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
 function bceWithLogits(logit: Scalar, label: number): Scalar {
+  // softplus(logit) - label * logit
   return logit.exp().add(1).log().sub(logit.mul(label));
 }
 
 class Network extends Module<Parameter<Scalar>> {
-  layer1: Linear;
-  layer2: Linear
+  layers: Linear[];
 
-  constructor(hiddenLayers: number) {
+  constructor(hiddenSizes: number[]) {
     super();
-    // Take 2 inputs - Point (x,y), process through hidden layers, return 1 output
-    this.layer1 = new Linear(2, hiddenLayers);
-    this.layer2 = new Linear(hiddenLayers, 1);
+    const sizes = [2, ...hiddenSizes, 1];
+    this.layers = [];
+    for (let i = 0; i < sizes.length - 1; i++) {
+      const layer = new Linear(sizes[i], sizes[i + 1]);
+      this.layers.push(layer);
+      this[`layer_${i}`] = layer;
+    }
   }
 
   forward(x: [Scalar, Scalar]): Scalar {
-    const relu1: Scalar[] = [];
-
-    // input point x into layer 1
-    const outputs1: Scalar[] = this.layer1.forward(x);
-
-    for (let i = 0; i < this.layer1.outSize; ++i) {
-      relu1.push(outputs1[i].leakyRelu());
+    let h: Scalar[] = x;
+    for (let i = 0; i < this.layers.length - 1; i++) {
+      const out = this.layers[i].forward(h);
+      h = out.map(s => s.leakyRelu());
     }
-
-    // return Scalar array of len 1
-    const outputs2: Scalar[] = this.layer2.forward(relu1);
-
-    // get final number and convert to probability
-    return outputs2[0];
+    const out = this.layers[this.layers.length - 1].forward(h);
+    return out[0];
   }
 }
 
@@ -87,26 +84,26 @@ function defaultLogFn(epoch, totalLoss, correct) {
 }
 
 class ScalarTrain {
-  hiddenLayers: number;
+  hiddenSizes: number[];
   model: Network;
   learningRate: number;
   maxEpochs: number;
 
-  constructor(hiddenLayers: number) {
-    this.hiddenLayers = hiddenLayers;
-    this.model = new Network(hiddenLayers);
+  constructor(hiddenSizes: number[]) {
+    this.hiddenSizes = hiddenSizes;
+    this.model = new Network(hiddenSizes);
   }
 
-  // for testing, run one forward pass of the network on a single datapoint
   runOne(x: Point) {
     return this.model.forward([new Scalar(x[0],undefined,"x1"), new Scalar(x[1],undefined,"x2")]);
   }
 
-  train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn) {
+  train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn, useAdam=false) {
     this.learningRate = learningRate;
     this.maxEpochs = maxEpochs;
-    this.model = new Network(this.hiddenLayers);
-    const optim = new SGD(this.model.parameters(), learningRate);
+    this.model = new Network(this.hiddenSizes);
+    const params = this.model.parameters();
+    const optim = useAdam ? new Adam(params, learningRate) : new SGD(params, learningRate);
 
     // const losses = [];
 
@@ -151,8 +148,6 @@ class ScalarTrain {
 
 export default function runScalar() {
   const PTS = 50;
-  const HIDDEN = 2;
-  const RATE = 0.5;
 
   const data1 = datasets["Simple"](PTS) as Graph;
   const data2 = datasets["Diag"](PTS) as Graph;
@@ -161,10 +156,21 @@ export default function runScalar() {
   const data5 = datasets["Circle"](PTS) as Graph;
   const data6 = datasets["Spiral"](PTS) as Graph;
 
-  new ScalarTrain(HIDDEN).train(data1, RATE);
-  new ScalarTrain(HIDDEN).train(data2, RATE);
-  new ScalarTrain(HIDDEN).train(data3, RATE);
-  new ScalarTrain(HIDDEN).train(data4, RATE);
-  new ScalarTrain(HIDDEN).train(data5, RATE);
-  new ScalarTrain(HIDDEN).train(data6, RATE);
+  console.log("=== Simple [4] ===");
+  new ScalarTrain([4]).train(data1, 0.5);
+
+  console.log("\n=== Diag [4] ===");
+  new ScalarTrain([4]).train(data2, 0.5);
+
+  console.log("\n=== Split [8] ===");
+  new ScalarTrain([8]).train(data3, 0.5);
+
+  console.log("\n=== Xor [8] ===");
+  new ScalarTrain([8]).train(data4, 0.5);
+
+  console.log("\n=== Circle [8, 8] ===");
+  new ScalarTrain([8, 8]).train(data5, 0.5, 1000);
+
+  console.log("\n=== Spiral [16, 16] + Adam ===");
+  new ScalarTrain([16, 16]).train(data6, 0.01, 2000, defaultLogFn, true);
 }
