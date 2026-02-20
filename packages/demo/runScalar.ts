@@ -3,6 +3,10 @@ import { Scalar, datasets, SGD, Module, Parameter, Mul, add } from "tstorch";
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
+function bceWithLogits(logit: Scalar, label: number): Scalar {
+  return logit.exp().add(1).log().sub(logit.mul(label));
+}
+
 class Network extends Module<Parameter<Scalar>> {
   layer1: Linear;
   layer2: Linear
@@ -118,18 +122,11 @@ class ScalarTrain {
         const y = data.y[i];
         const x1 = new Scalar(rx1);
         const x2 = new Scalar(rx2);
-        const x = this.model.forward([x1, x2]);
-
-        const pred = x.data > 0 ? 1 : 0;
+        const logit = this.model.forward([x1, x2]);
+        const pred = logit.data > 0 ? 1 : 0;
         if (pred === y) correct++;
 
-        if (y == 1) {
-          // log(1 + exp(-x))
-          loss = x.neg().exp().add(1).log();
-        } else {
-          // log(1 + exp(x))
-          loss = x.exp().add(1).log();
-        }
+        loss = bceWithLogits(logit, y);
 
         loss = loss.div(data.N);
         totalLoss = totalLoss.add(loss);
