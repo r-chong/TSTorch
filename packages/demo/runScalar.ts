@@ -47,8 +47,10 @@ class Linear extends Module {
     this.inSize = inSize;
     this.outSize = outSize;
 
+    const scale = Math.sqrt(2 / inSize);
+
     this.weights = Array.from({ length: outSize }, () =>
-      Array.from({ length: inSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))))
+      Array.from({ length: inSize }, () => new Parameter(new Scalar((Math.random() - 0.5) * 2 * scale)))
     );
 
     this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))));
