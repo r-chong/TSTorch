@@ -10,6 +10,7 @@ import {
     Neg,
     Sigmoid,
     Relu,
+    LeakyRelu,
     Exp,
     LT,
     EQ,
@@ -124,6 +125,10 @@ export class Scalar {
 
     relu(): Scalar {
         return Scalar.apply(Relu, this);
+    }
+
+    leakyRelu(): Scalar {
+        return Scalar.apply(LeakyRelu, this);
     }
 
     chainRule(dOut: number): Iterable<GradPair> {

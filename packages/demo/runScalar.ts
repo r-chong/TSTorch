@@ -1,34 +1,35 @@
-import { Scalar, datasets, SGD, Module, Parameter, Mul, add } from "tstorch";
+import { Scalar, datasets, SGD, Adam, Optimizer, Module, Parameter } from "tstorch";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
 
-class Network extends Module<Parameter<Scalar>> {
-  layer1: Linear;
-  layer2: Linear
+function bceWithLogits(logit: Scalar, label: number): Scalar {
+  // softplus(logit) - label * logit
+  return logit.exp().add(1).log().sub(logit.mul(label));
+}
 
-  constructor(hiddenLayers: number) {
+class Network extends Module<Parameter<Scalar>> {
+  layers: Linear[];
+
+  constructor(hiddenSizes: number[]) {
     super();
-    // Take 2 inputs - Point (x,y), process through hidden layers, return 1 output
-    this.layer1 = new Linear(2, hiddenLayers);
-    this.layer2 = new Linear(hiddenLayers, 1);
+    const sizes = [2, ...hiddenSizes, 1];
+    this.layers = [];
+    for (let i = 0; i < sizes.length - 1; i++) {
+      const layer = new Linear(sizes[i], sizes[i + 1]);
+      this.layers.push(layer);
+      this[`layer_${i}`] = layer;
+    }
   }
 
   forward(x: [Scalar, Scalar]): Scalar {
-    const relu1: Scalar[] = [];
-
-    // input point x into layer 1
-    const outputs1: Scalar[] = this.layer1.forward(x);
-
-    for (let i = 0; i < this.layer1.outSize; ++i) {
-      relu1.push(outputs1[i].relu());
+    let h: Scalar[] = x;
+    for (let i = 0; i < this.layers.length - 1; i++) {
+      const out = this.layers[i].forward(h);
+      h = out.map(s => s.leakyRelu());
     }
-
-    // return Scalar array of len 1
-    const outputs2: Scalar[] = this.layer2.forward(relu1);
-
-    // get final number and convert to probability
-    return outputs2[0];
+    const out = this.layers[this.layers.length - 1].forward(h);
+    return out[0];
   }
 }
 
@@ -43,11 +44,13 @@ class Linear extends Module {
     this.inSize = inSize;
     this.outSize = outSize;
 
+    const scale = Math.sqrt(2 / inSize);
+
     this.weights = Array.from({ length: outSize }, () =>
-      Array.from({ length: inSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))))
+      Array.from({ length: inSize }, () => new Parameter(new Scalar((Math.random() - 0.5) * 2 * scale)))
     );
 
-    this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))));
+    this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(0)));
 
     // register weights and bias as parameters in module
     // note that using our proxy autoregisters but not if it's in an array
@@ -81,26 +84,26 @@ function defaultLogFn(epoch, totalLoss, correct) {
 }
 
 class ScalarTrain {
-  hiddenLayers: number;
+  hiddenSizes: number[];
   model: Network;
   learningRate: number;
   maxEpochs: number;
 
-  constructor(hiddenLayers: number) {
-    this.hiddenLayers = hiddenLayers;
-    this.model = new Network(hiddenLayers);
+  constructor(hiddenSizes: number[]) {
+    this.hiddenSizes = hiddenSizes;
+    this.model = new Network(hiddenSizes);
   }
 
-  // for testing, run one forward pass of the network on a single datapoint
   runOne(x: Point) {
     return this.model.forward([new Scalar(x[0],undefined,"x1"), new Scalar(x[1],undefined,"x2")]);
   }
 
-  train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn) {
+  train(data: Graph, learningRate: number, maxEpochs: number = 500, logFn=defaultLogFn, useAdam=false) {
     this.learningRate = learningRate;
     this.maxEpochs = maxEpochs;
-    this.model = new Network(this.hiddenLayers);
-    const optim = new SGD(this.model.parameters(), learningRate);
+    this.model = new Network(this.hiddenSizes);
+    const params = this.model.parameters();
+    const optim = useAdam ? new Adam(params, learningRate) : new SGD(params, learningRate);
 
     // const losses = [];
 
@@ -118,18 +121,11 @@ class ScalarTrain {
         const y = data.y[i];
         const x1 = new Scalar(rx1);
         const x2 = new Scalar(rx2);
-        const x = this.model.forward([x1, x2]);
-
-        const pred = x.data > 0 ? 1 : 0;
+        const logit = this.model.forward([x1, x2]);
+        const pred = logit.data > 0 ? 1 : 0;
         if (pred === y) correct++;
 
-        if (y == 1) {
-          // log(1 + exp(-x))
-          loss = x.neg().exp().add(1).log();
-        } else {
-          // log(1 + exp(x))
-          loss = x.exp().add(1).log();
-        }
+        loss = bceWithLogits(logit, y);
 
         loss = loss.div(data.N);
         totalLoss = totalLoss.add(loss);
