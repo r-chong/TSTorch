@@ -53,7 +53,7 @@ class Linear extends Module {
       Array.from({ length: inSize }, () => new Parameter(new Scalar((Math.random() - 0.5) * 2 * scale)))
     );
 
-    this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(2 * (Math.random() - 0.5))));
+    this.bias = Array.from({ length: outSize }, () => new Parameter(new Scalar(0)));
 
     // register weights and bias as parameters in module
     // note that using our proxy autoregisters but not if it's in an array
