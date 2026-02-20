@@ -25,7 +25,7 @@ class Network extends Module<Parameter<Scalar>> {
     const outputs1: Scalar[] = this.layer1.forward(x);
 
     for (let i = 0; i < this.layer1.outSize; ++i) {
-      relu1.push(outputs1[i].relu());
+      relu1.push(outputs1[i].leakyRelu());
     }
 
     // return Scalar array of len 1

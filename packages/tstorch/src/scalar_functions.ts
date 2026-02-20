@@ -111,6 +111,20 @@ export class Relu extends ScalarFunction {
     }
 }
 
+const LEAKY_SLOPE = 0.01;
+
+export class LeakyRelu extends ScalarFunction {
+    static forward(ctx: Context, a: number): number {
+        ctx.saveForBackward(a);
+        return a > 0 ? a : LEAKY_SLOPE * a;
+    }
+
+    static backward(ctx: Context, dOut: number): number[] {
+        const [a] = ctx.savedValues;
+        return [dOut * (a! > 0 ? 1 : LEAKY_SLOPE)];
+    }
+}
+
 export class Exp extends ScalarFunction {
     static forward(ctx: Context, a: number): number {
         const result = operators.exp(a);
