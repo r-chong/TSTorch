@@ -1,10 +1,6 @@
-<<<<<<< HEAD
 import { runDispatchParity } from "./dispatch_parity.js";
-
-const result = runDispatchParity();
-console.log(result);
-=======
 import { Scalar, datasets } from "tstorch";
+import runScalar from "./runScalar.js";
 
 console.log(Scalar);
 
@@ -30,4 +26,7 @@ function main() {
     const data = datasets["Simple"](PTS);
     const st = new ScalarTrain(HIDDEN).train(data, RATE);
 }
->>>>>>> ce72d73 (wip: runScalar.py port)
+
+runScalar();
+const result = runDispatchParity();
+console.log(result);

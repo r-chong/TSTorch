@@ -6,6 +6,7 @@
     "tstorch": "workspace:*"
   },  
   "scripts": {
-    "start": "node index.ts"
+    "build": "tsc -p .",
+    "start": "pnpm build && node dist/index.js"
   }
 }
