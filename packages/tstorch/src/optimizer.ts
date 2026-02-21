@@ -44,11 +44,11 @@ export class SGD extends Optimizer {
                 continue;
             }
 
-        // Check for derivative (Scalar-like objects)
-        if (p.value instanceof Scalar) {
-            const grad = p.value.derivative ?? 0;
-            p.value.data -= this.lr * grad;
+            // Check for derivative (Scalar-like objects)
+            if (p.value instanceof Scalar) {
+                const grad = p.value.derivative ?? 0;
+                p.value.data -= this.lr * grad;
+            }
         }
     }
-}
 }
