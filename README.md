@@ -1,25 +1,30 @@
-TSTorch is a TypeScript implementation of PyTorch, intended as a working library and educational resource.
+# What is TSTorch?
 
-TSTorch exposes the core execution mechanisms behind modern deep learning systems: autograd, graph capture, kernel fusion, and GPU memory planning, using WebGPU as the primary execution target.
+TSTorch is a WebGPU-first runtime for predictable local inference.
 
-> Why not just use Tensorflow.js?
+It is a tool to execute models directly on the user’s device and expose what actually happens during execution: scheduling, memory allocation, graph capture, and GPU dispatch behavior. The goal is to make model behavior observable and predictable under real hardware constraints such as latency, memory pressure, and power limits.
 
-We want to:
-- Be WebGPU-first by design
-- Expose autograd and graph execution internals
-- Support graph capture and compiler-style optimizations
-- Make kernel fusion and memory planning observable
+Instead of treating execution as an internal implementation detail, TSTorch treats it as part of the public API.
 
-In short, TensorFlow.js is a product.
-TSTorch is a systems-level exploration of how such products are built.
+# What problem this solves
 
-# Who is this for?
+Many modern AI systems fail not because the model is wrong, but because runtime behavior becomes unpredictable on constrained devices.
 
-Engineers interested in ML infrastructure and compilers
+TSTorch allows you to run a real model locally and see what the runtime actually did on that specific device:
 
-Developers building ML-powered web applications who want deeper control
+* How many GPU dispatches occurred
+* What memory peaks were reached
+* What operations were fused
+* Where latency actually came from
+* Whether the model is viable on-device
 
-Students learning how frameworks like PyTorch and Torch 2 actually work under the hood
+This makes TSTorch closer to an execution microscope than a traditional framework.
+
+The intended workflow:
+1. Import a trained or fine-tuned model made using a normal framework (PyTorch, etc.) via ONNX
+2. Run model locally with TSTorch
+3. Inspect latency, memory usage, and execution behavior
+4. Decide whether edge deployment is viable
 
 # Steps to use
 
@@ -30,7 +35,3 @@ important: run `pnpm --filter tstorch` before your npm install and run commands
 2. Compile TSTorch library `pnpm --filter tstorch run build` 
 3. Add TSTorch library to demo `pnpm add tstorch --filter demo`
 4. Run `pnpm --filter demo run start`
-
-
-# Development of this repo
-
