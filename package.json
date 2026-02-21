@@ -1,5 +1,8 @@
 {
   "name": "tstorch-workspace",
   "private": true,
-  "workspaces": ["packages/*"]
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "demo": "pnpm install && pnpm --filter tstorch run build && pnpm add tstorch --filter demo && pnpm --filter demo run start"
+  }
 }
