@@ -15,3 +15,4 @@ export { tensorMap, tensorZip, tensorReduce } from "./tensor_ops.js";
 export { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from "./fast_ops.js";
 
 
+export * from "./datasets.js"
