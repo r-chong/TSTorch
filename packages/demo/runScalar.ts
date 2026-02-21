@@ -176,7 +176,7 @@ export default function runScalar() {
   console.log("\n=== Circle [8, 8] ===");
   new ScalarTrain(8).train(data5, 0.5, 1000);
 
-  console.log("\n=== Circle [8, 8] ===");
+  console.log("\n=== Spiral [8] ===");
   new ScalarTrain(8).train(data6, 0.5, 1000);
 
 }
