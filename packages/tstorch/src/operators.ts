@@ -58,7 +58,7 @@ export function exp(x: number):number {
 }
 
 export function logBack(x: number, d: number):number {
-    return d * (1 / max(x, EPS))
+    return d * (1 / max(x, EPS));
 }
 
 export function inv(x: number):number {
