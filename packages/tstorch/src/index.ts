@@ -5,6 +5,7 @@ export * from "./operators.js";
 // Scalar module
 export * from "./scalar.js";
 export * from "./scalar_functions.js";
+export * from "./datasets.js"
 
 // Tensor module
 export { Tensor, type TensorLike } from "./tensor.js";
