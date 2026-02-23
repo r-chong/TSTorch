@@ -1,12 +1,7 @@
-import { Tensor, destroyPool } from '../tstorch/src/index.js';
+import { Tensor, destroyPool } from 'tstorch';
 import { pathToFileURL } from 'node:url';
 
-function train(
-    batchSize: number,
-    features: number,
-    epochs: number,
-    lr: number,
-): number[] {
+function train(batchSize, features, epochs, lr) {
     const x = Tensor.zeros([batchSize, features]);
     x.data.storage.fill(1);
     const y = Tensor.zeros([batchSize, 1]);
@@ -31,7 +26,7 @@ function train(
         }
 
         for (let i = 0; i < features; i++) {
-            weights.data.storage[i] -= lr * grad.data.storage[i]!;
+            weights.data.storage[i] -= lr * grad.data.storage[i];
         }
 
         weights.zero_grad_();
@@ -40,12 +35,7 @@ function train(
     return Array.from(weights.data.storage);
 }
 
-export type DispatchParityResult = {
-    weightsBelow: number[];
-    weightsAbove: number[];
-};
-
-export function runDispatchParity(): DispatchParityResult {
+export function runDispatchParity() {
     const FEATURES = 8;
     const EPOCHS = 3;
     const LEARNING_RATE = 0.01;
