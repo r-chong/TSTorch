@@ -15,5 +15,9 @@ export * as tensorFunctions from "./tensor_functions.js";
 export { tensorMap, tensorZip, tensorReduce } from "./tensor_ops.js";
 export { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from "./fast_ops.js";
 
+// GPU module (WebGPU compute shaders)
+export { gpuTensorMap, gpuTensorZip, gpuTensorReduce, _sumPractice } from "./gpu_ops.js";
+export { getDevice, destroyDevice } from "./gpu_backend.js";
+export { WORKGROUP_SIZE } from "./gpu_kernels.js";
 
 export * from "./datasets.js"
