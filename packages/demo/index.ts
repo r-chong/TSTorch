@@ -1,3 +1,10 @@
 import runScalar from "./runScalar.js";
+import runTensor from "./runTensor.js";
 
-runScalar();
+const mode = process.argv[2] ?? "tensor";
+
+if (mode === "scalar") {
+    runScalar();
+} else {
+    runTensor();
+}
