@@ -25,9 +25,6 @@ export class Module<P extends BaseParameter = BaseParameter> {
                 else if (value instanceof BaseParameter) {
                     target._parameters[key as string] = value as P;
                 }
-                else {
-                    (target as any)[key] = value;
-                }
 
                 return Reflect.set(target, key, value, receiver);
             }
