@@ -1,6 +1,7 @@
 import { test, fc } from '@fast-check/jest';
 import { describe, expect, afterAll } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from './fast_ops.js';
@@ -715,17 +716,45 @@ describe("dispatch parity across PARALLEL_THRESHOLD", () => {
         const here = dirname(fileURLToPath(import.meta.url));
         const packageRoot = join(here, '..');
         const demoRoot = join(packageRoot, '..', 'demo');
-        const scriptPath = join(demoRoot, 'dispatch_parity.ts');
-        const loaderPath = join(packageRoot, 'scripts', 'ts-loader.mjs');
+        const scriptPath = join(demoRoot, 'dispatch_parity.js');
+        const tscPath = join(packageRoot, 'node_modules', 'typescript', 'bin', 'tsc');
+        const tsconfigPath = join(packageRoot, 'tsconfig.json');
 
         const env = { ...process.env };
         delete env['JEST_WORKER_ID'];
         delete env['TSTORCH_DISABLE_PARALLEL'];
 
+        if (!existsSync(tscPath)) {
+            throw new Error(
+                'typescript is required to build tstorch before running dispatch parity',
+            );
+        }
+
+        const buildResult = spawnSync(
+            process.execPath,
+            [tscPath, '-p', tsconfigPath],
+            {
+                cwd: packageRoot,
+                env,
+                encoding: 'utf8',
+                timeout: 60000,
+            },
+        );
+
+        if (buildResult.error) {
+            throw buildResult.error;
+        }
+        if (buildResult.status !== 0) {
+            const stderr = buildResult.stderr?.trim();
+            throw new Error(
+                `tstorch build failed${stderr ? `: ${stderr}` : ''}`,
+            );
+        }
+
         // Run outside Jest so worker threads can use SharedArrayBuffer.
         const result = spawnSync(
             process.execPath,
-            ['--no-warnings', '--loader', loaderPath, scriptPath],
+            ['--no-warnings', scriptPath],
             {
                 cwd: demoRoot,
                 env,
