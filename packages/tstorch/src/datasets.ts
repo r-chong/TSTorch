@@ -72,7 +72,7 @@ export function spiral(N: number): Graph {
   const X = [...X1, ...X2];
   const y = [...Array(half).fill(0), ...Array(half).fill(1)];
 
-  return { N, X, y };
+  return { N: X.length, X, y };
 }
 
 export const datasets: Record<string, (N: number) => Graph> = {

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TSTorch – Dataset Visualizer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header id="header">
+      <h1>TSTorch <span class="subtitle">Dataset Visualizer</span></h1>
+      <div id="global-controls">
+        <button id="btn-train" class="btn primary">Train All</button>
+        <button id="btn-play" class="btn" disabled>Play All</button>
+        <button id="btn-pause" class="btn" disabled>Pause All</button>
+        <label class="speed-label">
+          Speed
+          <input id="speed-slider" type="range" min="1" max="8" value="2" step="1" />
+          <span id="speed-value">2x</span>
+        </label>
+      </div>
+    </header>
+    <main id="grid"></main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
