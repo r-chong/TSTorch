@@ -57,12 +57,20 @@ export class Module<P extends BaseParameter = BaseParameter> {
     }
 
     modules(): Module<P>[] {
+        const all: Module<P>[] = [this];
+        for (const child of this.children()) {
+            all.push(...child.modules());
+        }
+        return all;
+    }
+
+    children(): Module<P>[] {
         return Object.values(this._modules);
     }
 
     train(): void {
         this.training = true;
-        for (const module of this.modules()) {
+        for (const module of this.children()) {
             module.train();
         }
     }
