@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "demo": "pnpm install && pnpm --filter tstorch run build && pnpm add tstorch --filter demo && pnpm --filter demo run start"
+    "demo": "pnpm install && pnpm --filter tstorch run build && pnpm add tstorch --filter demo && pnpm --filter demo run start",
+    "test-tstorch": "pnpm --filter tstorch run test"
   }
 }
