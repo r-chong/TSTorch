@@ -716,7 +716,7 @@ describe("dispatch parity across PARALLEL_THRESHOLD", () => {
         const here = dirname(fileURLToPath(import.meta.url));
         const packageRoot = join(here, '..');
         const demoRoot = join(packageRoot, '..', 'demo');
-        const scriptPath = join(demoRoot, 'dispatch_parity.js');
+        const scriptPath = join(demoRoot, 'src', 'dispatch_parity.js');
         const tscPath = join(packageRoot, 'node_modules', 'typescript', 'bin', 'tsc');
         const tsconfigPath = join(packageRoot, 'tsconfig.json');
 
