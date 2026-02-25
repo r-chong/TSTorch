@@ -101,9 +101,7 @@ class ScalarTrain {
     this.maxEpochs = maxEpochs;
     this.model = new Network(this.hiddenLayers);
     const optim = new SGD(this.model.parameters(), learningRate);
-
-    // const losses = [];
-
+    
     for (let epoch = 1; epoch < this.maxEpochs + 1; ++epoch) {
       let totalLoss = new Scalar(0);
       let correct = 0;
@@ -133,7 +131,6 @@ class ScalarTrain {
 
         loss = loss.div(data.N);
         totalLoss = totalLoss.add(loss);
-        // losses.push(totalLoss);
       }
 
       // backward pass on accumulated loss
