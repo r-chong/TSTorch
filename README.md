@@ -23,14 +23,5 @@ Students learning how frameworks like PyTorch and Torch 2 actually work under th
 
 # Steps to use
 
-important: run `pnpm --filter tstorch` before your npm install and run commands
-
-# Run demo
-1. Install everything `pnpm install`
-2. Compile TSTorch library `pnpm --filter tstorch run build` 
-3. Add TSTorch library to demo `pnpm add tstorch --filter demo`
-4. Run `pnpm --filter demo run start`
-
-
-# Development of this repo
-
+To run demo: `pnpm run demo`
+To run tests: `pnpm run test-tstorch`
