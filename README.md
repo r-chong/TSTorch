@@ -1,37 +1,97 @@
-# What is TSTorch?
+# TSTorch
 
-TSTorch is a WebGPU-first runtime for predictable local inference.
+TSTorch is a model execution observability runtime for developers who need to know whether a neural network will actually work on a real device.
+Unlike PyTorch or ONNX Runtime, which focus on running models, TSTorch focuses on **revealing what actually happened while the model executed**. That is, latency sources, memory peaks, GPU dispatch behavior, and operator fusion.
 
-It is a tool to execute models directly on the user’s device and expose what actually happens during execution: scheduling, memory allocation, graph capture, and GPU dispatch behavior. The goal is to make model behavior observable and predictable under real hardware constraints such as latency, memory pressure, and power limits.
+Questions it will answer:
+* “Why is my model fast on my workstation but slow on a laptop?”
+* “Will this model fit in mobile GPU memory?”
+* “Where is my inference latency really coming from?”
+* “Is this model deployable on-device at all?”
 
-Instead of treating execution as an internal implementation detail, TSTorch treats it as part of the public API.
+It's more like an **execution microscope** than a traditional inference framework.
 
-# What problem this solves
+---
 
-Many modern AI systems fail not because the model is wrong, but because runtime behavior becomes unpredictable on constrained devices.
+## What TSTorch actually does
 
-TSTorch allows you to run a real model locally and see what the runtime actually did on that specific device:
+TSTorch runs a real ONNX model locally using WebGPU and produces a trace of the execution, including:
+* number of GPU dispatches
+* operator fusion behavior
+* peak memory usage
+* allocation pressure
+* per-operator latency
+* where time was actually spent
+Observe the real runtime behavior of the model on that exact machine.
 
-* How many GPU dispatches occurred
-* What memory peaks were reached
-* What operations were fused
-* Where latency actually came from
-* Whether the model is viable on-device
+---
 
-This makes TSTorch closer to an execution microscope than a traditional framework.
+## Typical workflow:
 
-The intended workflow:
-1. Import a trained or fine-tuned model made using a normal framework (PyTorch, etc.) via ONNX
-2. Run model locally with TSTorch
-3. Inspect latency, memory usage, and execution behavior
-4. Decide whether edge deployment is viable
+1. Train or fine-tune in PyTorch
+2. Export to ONNX
+3. Run with TSTorch on a real device
+4. Inspect latency + memory behavior
+5. Decide if the device can support it
 
-# Steps to use
+After running a model you will see information similar to:
 
-important: run `pnpm --filter tstorch` before your npm install and run commands
+```
+Model: resnet18.onnx
 
-# Run demo
-1. Install everything `pnpm install`
-2. Compile TSTorch library `pnpm --filter tstorch run build` 
-3. Add TSTorch library to demo `pnpm add tstorch --filter demo`
-4. Run `pnpm --filter demo run start`
+Total latency: 42.6 ms
+Peak GPU memory: 312 MB
+GPU dispatches: 184
+
+Top latency contributors:
+conv2d_13        9.8 ms
+batchnorm_13     6.4 ms
+relu_13          fused
+matmul_1         5.1 ms
+
+Operator fusion:
+conv + batchnorm + relu -> fused (12 occurrences)
+
+Conclusion:
+Model is deployable on mid-range integrated GPUs.
+```
+
+Note: while TSTorch is capable and correct for training, serving APIs, and maximum throughput inference, they are not usecases why a user should adopt TSTorch today
+
+---
+
+## 60-second quickstart
+
+Requirements:
+
+* Chrome or Edge (recent version)
+* A machine with WebGPU support (most modern laptops/desktops)
+* Node.js 18+
+
+## If the demo does not work
+
+Most issues are WebGPU configuration problems.
+
+Try:
+
+1. Update Chrome/Edge to latest version
+2. Visit `chrome://gpu` and confirm WebGPU is enabled
+3. Enable the flag:
+
+   ```
+   chrome://flags/#enable-unsafe-webgpu
+   ```
+4. Restart the browser
+
+---
+
+## Project status
+
+Active early development.
+
+Goals:
+
+* predictable execution traces
+* stable ONNX subset
+* reproducible latency reporting across devices
+* tooling for edge deployment decisions
