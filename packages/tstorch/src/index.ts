@@ -6,6 +6,8 @@ export * from "./operators.js";
 export * from "./scalar.js";
 export * from "./scalar_functions.js";
 export * from "./datasets.js"
+export * from "./optimizer.js"
+export * from "./module.js"
 
 // Tensor module
 export { Tensor, type TensorLike } from "./tensor.js";
@@ -21,3 +23,4 @@ export { getDevice, destroyDevice } from "./gpu_backend.js";
 export { WORKGROUP_SIZE } from "./gpu_kernels.js";
 
 export * from "./datasets.js"
+export * from "./module.js"

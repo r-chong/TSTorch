@@ -48,7 +48,7 @@ export class Log extends ScalarFunction {
 
     static backward(ctx: Context, dOut: number): number[] {
         const [a] = ctx.savedValues;
-        return [dOut * (1 / a!)];
+        return [dOut * (1 / Math.max(a!, 1e-12))];
     }
 }
 
