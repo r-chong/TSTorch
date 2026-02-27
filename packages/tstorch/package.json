@@ -23,5 +23,8 @@
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "build": "tsc"
+  },
+  "dependencies": {
+    "webgpu": "^0.3.8"
   }
 }
