@@ -55,8 +55,8 @@ class Network extends Module<Parameter<Tensor>> {
     }
 }
 
-function defaultLogFn(epoch: number, totalLoss: number, correct: number, epochTime: number) {
-    console.log(`Epoch ${epoch}  loss ${totalLoss.toFixed(4)}  correct ${correct}  time ${epochTime.toFixed(1)}ms`);
+function defaultLogFn(epoch: number, totalLoss: number, correct: number) {
+    console.log("Epoch ", epoch, " loss ", totalLoss, " correct ", correct);
 }
 
 class TensorTrain {
@@ -84,8 +84,6 @@ class TensorTrain {
         const y = Tensor.tensor(data.y);
 
         for (let epoch = 1; epoch <= this.maxEpochs; epoch++) {
-            const start = performance.now();
-
             optim.zeroGrad();
 
             const out = this.model.forward(X).view(data.N);
@@ -103,15 +101,13 @@ class TensorTrain {
             X.zero_grad_();
             y.zero_grad_();
 
-            const epochTime = performance.now() - start;
-
-            if (epoch % 10 === 0 || epoch === this.maxEpochs) {
+            if (epoch % 500 === 0 || epoch === this.maxEpochs) {
                 let correct = 0;
                 for (let i = 0; i < data.N; i++) {
                     const pred = out.get([i]) > 0.5 ? 1 : 0;
                     if (pred === data.y[i]) correct++;
                 }
-                logFn(epoch, totalLoss, correct, epochTime);
+                logFn(epoch, totalLoss, correct);
             }
         }
     }
