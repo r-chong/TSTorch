@@ -1,4 +1,4 @@
-import { Tensor, TensorData, shapeProduct, datasets, SGD, Module, Parameter } from "tstorch";
+import { Tensor, TensorData, shapeProduct, datasets, SGD, Module, Parameter, destroyPool } from "tstorch";
 
 type Point = [number, number];
 type Graph = { N: number; X: Point[]; y: number[] };
@@ -144,4 +144,6 @@ export default function runTensor() {
 
     console.log("\n=== Spiral [8] ===");
     new TensorTrain(8).train(data6, 0.5, 1000);
+
+    destroyPool();
 }
