@@ -1,7 +1,8 @@
 import { describe, test, expect, afterAll } from '@jest/globals';
-import { _sumPractice, gpuTensorMap, gpuTensorZip, gpuTensorReduce } from './gpu_ops.js';
+import { _sumPractice, gpuTensorMap, gpuTensorZip, gpuTensorReduce, gpuTensorMatrixMultiply } from './gpu_ops.js';
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
-import { TensorData, shapeProduct } from './tensor_data.js';
+import { TensorData, shapeProduct, toIndex, broadcastIndex, indexToPosition } from './tensor_data.js';
+import type { Storage, Shape, Strides } from './tensor_data.js';
 import { destroyDevice } from './gpu_backend.js';
 import { WORKGROUP_SIZE } from './gpu_kernels.js';
 import * as ops from './operators.js';
@@ -487,5 +488,169 @@ describe('large tensor GPU ops', () => {
         );
 
         expect(output.storage[0]).toBeCloseTo(size, 0);
+    });
+});
+
+// ============================================================
+// gpuTensorMatrixMultiply
+// ============================================================
+
+function cpuMatMul(a: TensorData, b: TensorData, out: TensorData): void {
+    const aDims = a.shape.length;
+    const bDims = b.shape.length;
+    const outDims = out.shape.length;
+    const M = a.shape[aDims - 2]!;
+    const K = a.shape[aDims - 1]!;
+    const N = b.shape[bDims - 1]!;
+
+    const outIdx: number[] = new Array(outDims).fill(0);
+    const aIdx: number[] = new Array(aDims).fill(0);
+    const bIdx: number[] = new Array(bDims).fill(0);
+
+    for (let ord = 0; ord < out.size; ord++) {
+        toIndex(ord, out.shape, outIdx);
+        const i = outIdx[outDims - 2]!;
+        const j = outIdx[outDims - 1]!;
+
+        let sum = 0;
+        for (let k = 0; k < K; k++) {
+            broadcastIndex(outIdx, out.shape, a.shape, aIdx);
+            aIdx[aDims - 2] = i;
+            aIdx[aDims - 1] = k;
+
+            broadcastIndex(outIdx, out.shape, b.shape, bIdx);
+            bIdx[bDims - 2] = k;
+            bIdx[bDims - 1] = j;
+
+            sum += a.storage[indexToPosition(aIdx, a.strides)]! *
+                   b.storage[indexToPosition(bIdx, b.strides)]!;
+        }
+
+        out.storage[indexToPosition(outIdx, out.strides)] = sum;
+    }
+}
+
+describe('gpuTensorMatrixMultiply', () => {
+    test('simple 2x2 matmul', async () => {
+        const a = new TensorData(new Float64Array([1, 2, 3, 4]), [2, 2]);
+        const b = new TensorData(new Float64Array([5, 6, 7, 8]), [2, 2]);
+        const output = TensorData.zeros([2, 2]);
+
+        await gpuTensorMatrixMultiply(
+            output.storage, output.shape, output.strides, output.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        // [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]]
+        expectClose(output.storage, [19, 22, 43, 50]);
+    });
+
+    test('non-square [2,3] x [3,4]', async () => {
+        const a = new TensorData(
+            new Float64Array([1, 2, 3, 4, 5, 6]), [2, 3],
+        );
+        const b = new TensorData(
+            new Float64Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), [3, 4],
+        );
+        const output = TensorData.zeros([2, 4]);
+
+        await gpuTensorMatrixMultiply(
+            output.storage, output.shape, output.strides, output.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        expectClose(output.storage, [38, 44, 50, 56, 83, 98, 113, 128]);
+    });
+
+    test('batched matmul [2,3,4] x [2,4,5]', async () => {
+        const aData = new Float64Array(2 * 3 * 4);
+        const bData = new Float64Array(2 * 4 * 5);
+        for (let i = 0; i < aData.length; i++) aData[i] = i + 1;
+        for (let i = 0; i < bData.length; i++) bData[i] = (i + 1) * 0.1;
+        const a = new TensorData(aData, [2, 3, 4]);
+        const b = new TensorData(bData, [2, 4, 5]);
+        const output = TensorData.zeros([2, 3, 5]);
+
+        const cpuOut = TensorData.zeros([2, 3, 5]);
+        cpuMatMul(a, b, cpuOut);
+
+        await gpuTensorMatrixMultiply(
+            output.storage, output.shape, output.strides, output.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        // f32 accumulation across K multiplies amplifies rounding vs f64 CPU reference
+        expectClose(output.storage, cpuOut.storage, 1e-2);
+    });
+
+    test('broadcast batch [1,3,4] x [2,4,5]', async () => {
+        const aData = new Float64Array(1 * 3 * 4);
+        const bData = new Float64Array(2 * 4 * 5);
+        for (let i = 0; i < aData.length; i++) aData[i] = i + 1;
+        for (let i = 0; i < bData.length; i++) bData[i] = (i + 1) * 0.5;
+        const a = new TensorData(aData, [1, 3, 4]);
+        const b = new TensorData(bData, [2, 4, 5]);
+        const output = TensorData.zeros([2, 3, 5]);
+
+        const cpuOut = TensorData.zeros([2, 3, 5]);
+        cpuMatMul(a, b, cpuOut);
+
+        await gpuTensorMatrixMultiply(
+            output.storage, output.shape, output.strides, output.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        expectClose(output.storage, cpuOut.storage);
+    });
+
+    test('large matmul [64,64] x [64,64] parity with CPU', async () => {
+        const N = 64;
+        const aData = new Float64Array(N * N);
+        const bData = new Float64Array(N * N);
+        for (let i = 0; i < N * N; i++) {
+            aData[i] = Math.sin(i * 0.01);
+            bData[i] = Math.cos(i * 0.01);
+        }
+        const a = new TensorData(aData, [N, N]);
+        const b = new TensorData(bData, [N, N]);
+        const gpuOut = TensorData.zeros([N, N]);
+        const cpuOut = TensorData.zeros([N, N]);
+
+        cpuMatMul(a, b, cpuOut);
+
+        await gpuTensorMatrixMultiply(
+            gpuOut.storage, gpuOut.shape, gpuOut.strides, gpuOut.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        expectClose(gpuOut.storage, cpuOut.storage);
+    });
+
+    test('non-contiguous (permuted) input', async () => {
+        // a is [3,2] permuted to [2,3], b is [3,4]
+        const aOrig = new TensorData(
+            new Float64Array([1, 2, 3, 4, 5, 6]), [3, 2],
+        );
+        const a = aOrig.permute(1, 0); // shape [2,3], strides [1,2]
+        const b = new TensorData(
+            new Float64Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), [3, 4],
+        );
+        const gpuOut = TensorData.zeros([2, 4]);
+        const cpuOut = TensorData.zeros([2, 4]);
+
+        cpuMatMul(a, b, cpuOut);
+
+        await gpuTensorMatrixMultiply(
+            gpuOut.storage, gpuOut.shape, gpuOut.strides, gpuOut.size,
+            a.storage, a.shape, a.strides,
+            b.storage, b.shape, b.strides,
+        );
+
+        expectClose(gpuOut.storage, cpuOut.storage);
     });
 });

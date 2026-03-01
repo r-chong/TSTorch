@@ -13,6 +13,7 @@ import {
 
 import {
     WORKGROUP_SIZE,
+    BLOCK_SIZE,
     UNARY_OPS,
     BINARY_OPS,
     REDUCE_IDENTITY,
@@ -24,6 +25,7 @@ import {
     buildBroadcastZipShader,
     buildSumPracticeShader,
     buildReduceShader,
+    buildMatMulShader,
 } from './gpu_kernels.js';
 
 const MAX_DIMS = 6;
@@ -363,4 +365,84 @@ export function gpuTensorReduce(
 
         destroyAll(aBuf, outBuf, paramBuf);
     };
+}
+
+// ---- gpuTensorMatrixMultiply ----
+
+/**
+ * GPU tiled matrix multiplication with shared memory.
+ * Supports arbitrary broadcast batch dimensions as long as
+ * aShape[-1] === bShape[-2].
+ */
+export async function gpuTensorMatrixMultiply(
+    outStorage: Storage,
+    outShape: Shape,
+    outStrides: Strides,
+    outSize: number,
+    aStorage: Storage,
+    aShape: Shape,
+    aStrides: Strides,
+    bStorage: Storage,
+    bShape: Shape,
+    bStrides: Strides,
+): Promise<void> {
+    const device = await getDevice();
+
+    const aDims = aShape.length;
+    const bDims = bShape.length;
+    const M = aShape[aDims - 2]!;
+    const K = aShape[aDims - 1]!;
+    const N = bShape[bDims - 1]!;
+
+    let batchSize = 1;
+    for (let i = 0; i < outShape.length - 2; i++) {
+        batchSize *= outShape[i]!;
+    }
+
+    const shaderCode = buildMatMulShader();
+    const pipeline = getOrCreatePipeline(device, shaderCode);
+
+    const paramBuf = createStorageParamsBuffer(device, packU32(
+        batchSize, M, N, K,
+        outShape.length, aDims, bDims, 0,
+        ...padToMax(outShape),
+        ...padToMax(outStrides),
+        ...padToMax(aShape),
+        ...padToMax(aStrides),
+        ...padToMax(bShape),
+        ...padToMax(bStrides),
+    ));
+
+    const aBuf = uploadBuffer(device, aStorage);
+    const bBuf = uploadBuffer(device, bStorage);
+    const outBuf = createOutputBuffer(device, outSize);
+
+    const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: aBuf } },
+            { binding: 1, resource: { buffer: bBuf } },
+            { binding: 2, resource: { buffer: outBuf } },
+            { binding: 3, resource: { buffer: paramBuf } },
+        ],
+    });
+
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(
+        Math.ceil(N / BLOCK_SIZE),
+        Math.ceil(M / BLOCK_SIZE),
+        batchSize,
+    );
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+
+    const result = await readbackBuffer(device, outBuf, outSize);
+    for (let i = 0; i < outSize; i++) {
+        outStorage[i] = result[i]!;
+    }
+
+    destroyAll(aBuf, bBuf, outBuf, paramBuf);
 }

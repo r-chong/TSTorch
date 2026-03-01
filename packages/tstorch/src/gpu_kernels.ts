@@ -1,6 +1,7 @@
 import * as operators from './operators.js';
 
 export const WORKGROUP_SIZE = 256;
+export const BLOCK_SIZE = 16; // 16x16 = 256 = WORKGROUP_SIZE, used for 2D tiled matmul
 const MAX_DIMS = 6;
 
 // ---- Operation registries ----
@@ -353,6 +354,152 @@ fn main(
     if (tid == 0u) {
         let outPos = indexToPosition(outMI, params.out_strides, params.out_dims);
         out_data[outPos] = sdata[0];
+    }
+}
+`;
+}
+
+/**
+ * Tiled matrix multiplication using workgroup shared memory.
+ * Dispatched as 3D: (ceil(N/BLOCK), ceil(M/BLOCK), batchSize).
+ * Each 16x16 workgroup computes one output tile, loading tiles of A and B
+ * into shared memory to satisfy:
+ *   - all data read from shared memory (not global) during accumulation
+ *   - each global cell of A and B read exactly once
+ *   - each thread writes to global memory exactly once
+ * Supports arbitrary broadcast batch dimensions via stride-based indexing.
+ */
+export function buildMatMulShader(): string {
+    const BLOCK = BLOCK_SIZE;
+    const SHARED = BLOCK * BLOCK;
+    return `
+${WGSL_INDEX_HELPERS}
+
+const BLOCK: u32 = ${BLOCK}u;
+var<workgroup> a_shared: array<f32, ${SHARED}>;
+var<workgroup> b_shared: array<f32, ${SHARED}>;
+
+@group(0) @binding(0) var<storage, read> a_data: array<f32>;
+@group(0) @binding(1) var<storage, read> b_data: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out_data: array<f32>;
+
+struct Params {
+    batch_size: u32,
+    M: u32,
+    N: u32,
+    K: u32,
+    out_dims: u32,
+    a_dims: u32,
+    b_dims: u32,
+    _pad: u32,
+    out_shape:   array<u32, ${MAX_DIMS}>,
+    out_strides: array<u32, ${MAX_DIMS}>,
+    a_shape:     array<u32, ${MAX_DIMS}>,
+    a_strides:   array<u32, ${MAX_DIMS}>,
+    b_shape:     array<u32, ${MAX_DIMS}>,
+    b_strides:   array<u32, ${MAX_DIMS}>,
+}
+@group(0) @binding(3) var<storage, read> params: Params;
+
+@compute @workgroup_size(${BLOCK}, ${BLOCK}, 1)
+fn main(
+    @builtin(local_invocation_id) lid: vec3u,
+    @builtin(workgroup_id) wid: vec3u,
+) {
+    let tx = lid.x;
+    let ty = lid.y;
+    let row = wid.y * BLOCK + ty;
+    let col = wid.x * BLOCK + tx;
+    let batch = wid.z;
+
+    let batch_dims = params.out_dims - 2u;
+
+    // Decompose linear batch index into multi-dim output batch indices
+    var batch_idx: array<u32, ${MAX_DIMS}>;
+    if (batch_dims > 0u) {
+        var batch_shape: array<u32, ${MAX_DIMS}>;
+        for (var d: u32 = 0u; d < batch_dims; d++) {
+            batch_shape[d] = params.out_shape[d];
+        }
+        toIndex(batch, batch_shape, batch_dims, &batch_idx);
+    }
+
+    // Output base offset from batch indices
+    var out_base: u32 = 0u;
+    for (var d: u32 = 0u; d < batch_dims; d++) {
+        out_base += batch_idx[d] * params.out_strides[d];
+    }
+    let out_stride_row = params.out_strides[params.out_dims - 2u];
+    let out_stride_col = params.out_strides[params.out_dims - 1u];
+
+    // Broadcast batch indices into a's batch space and compute base offset
+    let a_batch_dims = params.a_dims - 2u;
+    var a_batch_idx: array<u32, ${MAX_DIMS}>;
+    if (a_batch_dims > 0u) {
+        var a_batch_shape: array<u32, ${MAX_DIMS}>;
+        for (var d: u32 = 0u; d < a_batch_dims; d++) {
+            a_batch_shape[d] = params.a_shape[d];
+        }
+        broadcastIndex(batch_idx, batch_dims, a_batch_shape, a_batch_dims, &a_batch_idx);
+    }
+    var a_base: u32 = 0u;
+    for (var d: u32 = 0u; d < a_batch_dims; d++) {
+        a_base += a_batch_idx[d] * params.a_strides[d];
+    }
+    let a_stride_row = params.a_strides[params.a_dims - 2u];
+    let a_stride_col = params.a_strides[params.a_dims - 1u];
+
+    // Broadcast batch indices into b's batch space and compute base offset
+    let b_batch_dims = params.b_dims - 2u;
+    var b_batch_idx: array<u32, ${MAX_DIMS}>;
+    if (b_batch_dims > 0u) {
+        var b_batch_shape: array<u32, ${MAX_DIMS}>;
+        for (var d: u32 = 0u; d < b_batch_dims; d++) {
+            b_batch_shape[d] = params.b_shape[d];
+        }
+        broadcastIndex(batch_idx, batch_dims, b_batch_shape, b_batch_dims, &b_batch_idx);
+    }
+    var b_base: u32 = 0u;
+    for (var d: u32 = 0u; d < b_batch_dims; d++) {
+        b_base += b_batch_idx[d] * params.b_strides[d];
+    }
+    let b_stride_row = params.b_strides[params.b_dims - 2u];
+    let b_stride_col = params.b_strides[params.b_dims - 1u];
+
+    // Tiled matmul: each tile loads BLOCK x BLOCK elements into shared memory
+    var acc: f32 = 0.0;
+    let num_tiles = (params.K + BLOCK - 1u) / BLOCK;
+
+    for (var t: u32 = 0u; t < num_tiles; t++) {
+        // Load A[row, t*BLOCK + tx] into a_shared[ty][tx]
+        let a_col = t * BLOCK + tx;
+        if (row < params.M && a_col < params.K) {
+            a_shared[ty * BLOCK + tx] = a_data[a_base + row * a_stride_row + a_col * a_stride_col];
+        } else {
+            a_shared[ty * BLOCK + tx] = 0.0;
+        }
+
+        // Load B[t*BLOCK + ty, col] into b_shared[ty][tx]
+        let b_row = t * BLOCK + ty;
+        if (b_row < params.K && col < params.N) {
+            b_shared[ty * BLOCK + tx] = b_data[b_base + b_row * b_stride_row + col * b_stride_col];
+        } else {
+            b_shared[ty * BLOCK + tx] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        // Accumulate partial dot products from shared memory
+        for (var k: u32 = 0u; k < BLOCK; k++) {
+            acc += a_shared[ty * BLOCK + k] * b_shared[k * BLOCK + tx];
+        }
+
+        workgroupBarrier();
+    }
+
+    // Single write to global memory per thread
+    if (row < params.M && col < params.N) {
+        out_data[out_base + row * out_stride_row + col * out_stride_col] = acc;
     }
 }
 `;
