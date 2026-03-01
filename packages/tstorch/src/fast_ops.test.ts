@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool } from './fast_ops.js';
+import { fastTensorMap, fastTensorZip, fastTensorReduce, destroyPool, fastMatrixMultiply } from './fast_ops.js';
 import { tensorMap, tensorZip, tensorReduce } from './tensor_ops.js';
 import { TensorData, shapeProduct } from './tensor_data.js';
 import { Tensor } from './tensor.js';
