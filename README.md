@@ -3,29 +3,6 @@
 TSTorch is a model execution observability runtime for developers who need to know whether a neural network will actually work on a real device.
 Unlike PyTorch or ONNX Runtime, which focus on running models, TSTorch focuses on **revealing what actually happened while the model executed**. That is, latency sources, memory peaks, GPU dispatch behavior, and operator fusion.
 
-Questions it will answer:
-* “Why is my model fast on my workstation but slow on a laptop?”
-* “Will this model fit in mobile GPU memory?”
-* “Where is my inference latency really coming from?”
-* “Is this model deployable on-device at all?”
-
-It's more like an **execution microscope** than a traditional inference framework.
-
----
-
-## What TSTorch actually does
-
-TSTorch runs a real ONNX model locally using WebGPU and produces a trace of the execution, including:
-* number of GPU dispatches
-* operator fusion behavior
-* peak memory usage
-* allocation pressure
-* per-operator latency
-* where time was actually spent
-Observe the real runtime behavior of the model on that exact machine.
-
----
-
 ## Typical workflow:
 
 1. Train or fine-tune in PyTorch
@@ -58,33 +35,6 @@ Model is deployable on mid-range integrated GPUs.
 
 Note: while TSTorch is capable and correct for training, serving APIs, and maximum throughput inference, they are not usecases why a user should adopt TSTorch today
 
----
-
-## 60-second quickstart
-
-Requirements:
-
-* Chrome or Edge (recent version)
-* A machine with WebGPU support (most modern laptops/desktops)
-* Node.js 18+
-
-## If the demo does not work
-
-Most issues are WebGPU configuration problems.
-
-Try:
-
-1. Update Chrome/Edge to latest version
-2. Visit `chrome://gpu` and confirm WebGPU is enabled
-3. Enable the flag:
-
-   ```
-   chrome://flags/#enable-unsafe-webgpu
-   ```
-4. Restart the browser
-
----
-
 ## Project status
 
 Active early development.
@@ -95,3 +45,9 @@ Goals:
 * stable ONNX subset
 * reproducible latency reporting across devices
 * tooling for edge deployment decisions
+
+---
+
+## Steps to run demo
+To run demo: `pnpm run demo`
+To run tests: `pnpm run test-tstorch`
