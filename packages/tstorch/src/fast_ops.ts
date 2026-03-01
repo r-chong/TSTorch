@@ -383,7 +383,6 @@ export function fastTensorReduce(
  * 
  * Restriction: it only handles inputs that are already 2D or 3D, and just pads 2D up to 3D
  */
-// out[i, j] = sum over k of A[i, k] * B[k, j]
 export function fastMatrixMultiply(A: Tensor, B: Tensor): Tensor {
     // Index from end of tensor shape, such that length - 2 is rows, length -1 is cols
     const [M, K] = [A.shape[A.shape.length - 2], A.shape[A.shape.length - 1]];
