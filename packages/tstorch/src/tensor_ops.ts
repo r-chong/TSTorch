@@ -153,15 +153,18 @@ export function tensorMatrixMultiply(A: Tensor, B: Tensor): Tensor {
         return A;
     }
 
+    let a: Tensor = A;
+    let b: Tensor = B;
+
     // Make these always be exactly a 3 dimensional multiply, so the kernel only ever needs to deal with one batch loop + the 2D multiply
     let Ais2D = false;
     let Bis2D = false;
     if (A.data.shape.length == 2) {
-        const a = A.contiguous().view(1, M, K);
+        a = A.contiguous().view(1, M, K);
         Ais2D = true;
     }
     if (B.data.shape.length == 2) {
-        const b = B.contiguous().view(1, K2, N);
+        b = B.contiguous().view(1, K2, N);
         Bis2D = true;
     }
     // If both A and B had to be converted from 2D -> 3D, then we must remove a dimension at the end. Else it will simply just disappear as per mat mult
@@ -169,7 +172,7 @@ export function tensorMatrixMultiply(A: Tensor, B: Tensor): Tensor {
     
 
     // Get resulting dimensions as array
-    const outShape = [...shapeBroadcast(A.shape.slice(0, -2), B.shape.slice(0, -2))];
+    const outShape = [...shapeBroadcast(a.shape.slice(0, -2), b.shape.slice(0, -2))];
     outShape.push(M);
     outShape.push(N);
 
@@ -185,7 +188,7 @@ export function tensorMatrixMultiply(A: Tensor, B: Tensor): Tensor {
             let acc = 0;
 
             for (let k = 0; k < K; ++k) {
-                acc += A.get([m * K, k]) * B.get([k * N, n]);
+                acc += a.get([m * K, k]) * b.get([k * N, n]);
             }
             out.set([m * M, n], acc);
         }
