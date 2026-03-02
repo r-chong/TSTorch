@@ -758,7 +758,7 @@ describe("tensorMatrixMultiply", () => {
 
         expect(out.shape).toEqual([2, 4]);
         for (let i = 0; i < out.size; i++) {
-            expect(out.storage[i]).toBe(0);
+            expect(out.data.storage[i]).toBe(0);
         }
     });
 

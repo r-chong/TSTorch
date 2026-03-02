@@ -420,21 +420,30 @@ function transposeLast2(x: Tensor): Tensor {
     return x.permute(...order);
 }
 
-function reduceToShape(grad: Tensor, targetShape: Shape): Tensor {
-    let result = grad;
+function reduceToShape(t: Tensor, targetShape: Shape): Tensor {
+    let result = t;
 
-    while (result.dims > targetShape.length) {
-        result = result.sum(0);
+    const tShape = t.shape;
+    const tDims = tShape.length;
+    const targetDims = targetShape.length;
+
+    // Pad target shape on the left
+    const paddedTarget = [
+        ...Array(tDims - targetDims).fill(1),
+        ...targetShape,
+    ];
+
+    for (let dim = 0; dim < tDims; dim++) {
+        if (paddedTarget[dim] === 1 && tShape[dim] !== 1) {
+            result = result.sum(dim);
+            result.history = null;
+        }
     }
 
-    for (let i = 0; i < targetShape.length; i++) {
-        if (targetShape[i] === 1 && result.shape[i] !== 1) {
-            result = result.sum(i).view(
-                ...result.shape.slice(0, i),
-                1,
-                ...result.shape.slice(i + 1)
-            );
-        }
+    // If we added leading dimensions, remove them
+    if (tDims !== targetDims) {
+        result = result.view(...targetShape);
+        result.history = null;
     }
 
     return result;
