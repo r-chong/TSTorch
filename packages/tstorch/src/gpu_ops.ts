@@ -1,8 +1,9 @@
 import type { Storage, Shape, Strides } from './tensor_data.js';
-import { shapeProduct } from './tensor_data.js';
+import { shapeProduct, strides as computeStrides } from './tensor_data.js';
 
 import {
     getDevice,
+    getTensorCoreDevice,
     uploadBuffer,
     createOutputBuffer,
     readbackBuffer,
@@ -13,6 +14,8 @@ import {
 
 import {
     WORKGROUP_SIZE,
+    BLOCK_SIZE,
+    TC_TILE,
     UNARY_OPS,
     BINARY_OPS,
     REDUCE_IDENTITY,
@@ -24,6 +27,8 @@ import {
     buildBroadcastZipShader,
     buildSumPracticeShader,
     buildReduceShader,
+    buildMatMulShader,
+    buildTensorCoreMatMulShader,
 } from './gpu_kernels.js';
 
 const MAX_DIMS = 6;
@@ -363,4 +368,196 @@ export function gpuTensorReduce(
 
         destroyAll(aBuf, outBuf, paramBuf);
     };
+}
+
+// ---- gpuTensorMatrixMultiply ----
+
+/**
+ * GPU tiled matrix multiplication with shared memory.
+ * Supports arbitrary broadcast batch dimensions as long as
+ * aShape[-1] === bShape[-2].
+ */
+export async function gpuTensorMatrixMultiply(
+    outStorage: Storage,
+    outShape: Shape,
+    outStrides: Strides,
+    outSize: number,
+    aStorage: Storage,
+    aShape: Shape,
+    aStrides: Strides,
+    bStorage: Storage,
+    bShape: Shape,
+    bStrides: Strides,
+): Promise<void> {
+    const device = await getDevice();
+
+    const aDims = aShape.length;
+    const bDims = bShape.length;
+    const M = aShape[aDims - 2]!;
+    const K = aShape[aDims - 1]!;
+    const N = bShape[bDims - 1]!;
+
+    let batchSize = 1;
+    for (let i = 0; i < outShape.length - 2; i++) {
+        batchSize *= outShape[i]!;
+    }
+
+    const shaderCode = buildMatMulShader();
+    const pipeline = getOrCreatePipeline(device, shaderCode);
+
+    const paramBuf = createStorageParamsBuffer(device, packU32(
+        batchSize, M, N, K,
+        outShape.length, aDims, bDims, 0,
+        ...padToMax(outShape),
+        ...padToMax(outStrides),
+        ...padToMax(aShape),
+        ...padToMax(aStrides),
+        ...padToMax(bShape),
+        ...padToMax(bStrides),
+    ));
+
+    const aBuf = uploadBuffer(device, aStorage);
+    const bBuf = uploadBuffer(device, bStorage);
+    const outBuf = createOutputBuffer(device, outSize);
+
+    const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: aBuf } },
+            { binding: 1, resource: { buffer: bBuf } },
+            { binding: 2, resource: { buffer: outBuf } },
+            { binding: 3, resource: { buffer: paramBuf } },
+        ],
+    });
+
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(
+        Math.ceil(N / BLOCK_SIZE),
+        Math.ceil(M / BLOCK_SIZE),
+        batchSize,
+    );
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+
+    const result = await readbackBuffer(device, outBuf, outSize);
+    for (let i = 0; i < outSize; i++) {
+        outStorage[i] = result[i]!;
+    }
+
+    destroyAll(aBuf, bBuf, outBuf, paramBuf);
+}
+
+// ---- gpuTensorMatrixMultiplyTensorCore ----
+
+function isContiguous(shape: Shape, strides: Strides): boolean {
+    const natural = computeStrides(shape);
+    for (let i = 0; i < shape.length; i++) {
+        if (strides[i] !== natural[i]) return false;
+    }
+    return true;
+}
+
+function batchShapesEqual(a: Shape, b: Shape): boolean {
+    const aBatch = a.slice(0, -2);
+    const bBatch = b.slice(0, -2);
+    return shapesEqual(aBatch, bBatch);
+}
+
+let _tcPipeline: GPUComputePipeline | null = null;
+let _tcPipelineSubgroupSize = 0;
+
+/**
+ * Experimental tensor-core-accelerated matrix multiply.
+ *
+ * Uses the Dawn `chromium_experimental_subgroup_matrix` extension which maps
+ * to Apple simdgroup_matrix (8x8 f32) on Metal and VK_KHR_cooperative_matrix
+ * on Vulkan. Returns true if the fast path executed, false if a precondition
+ * was not met and the caller should fall back to `gpuTensorMatrixMultiply`.
+ *
+ * Preconditions (returns false when any is violated):
+ *   - Tensor core device available (hardware + experimental feature)
+ *   - All tensors contiguous (natural row-major strides)
+ *   - M, N, K all divisible by 8
+ *   - Batch dimensions of A and B identical (no broadcasting)
+ */
+export async function gpuTensorMatrixMultiplyTensorCore(
+    outStorage: Storage,
+    outShape: Shape,
+    outStrides: Strides,
+    outSize: number,
+    aStorage: Storage,
+    aShape: Shape,
+    aStrides: Strides,
+    bStorage: Storage,
+    bShape: Shape,
+    bStrides: Strides,
+): Promise<boolean> {
+    const aDims = aShape.length;
+    const bDims = bShape.length;
+    const M = aShape[aDims - 2]!;
+    const K = aShape[aDims - 1]!;
+    const N = bShape[bDims - 1]!;
+
+    if (M % TC_TILE !== 0 || N % TC_TILE !== 0 || K % TC_TILE !== 0) return false;
+    if (!isContiguous(aShape, aStrides) || !isContiguous(bShape, bStrides)) return false;
+    if (!isContiguous(outShape, outStrides)) return false;
+    if (!batchShapesEqual(aShape, bShape)) return false;
+
+    const device = await getTensorCoreDevice();
+    if (!device) return false;
+
+    let batchSize = 1;
+    for (let i = 0; i < outShape.length - 2; i++) {
+        batchSize *= outShape[i]!;
+    }
+
+    // Query maxSubgroupSize from the device (exposed when subgroups feature is active)
+    const maxSubgroupSize = (device.limits as unknown as Record<string, number>)['maxSubgroupSize'] ?? 64;
+
+    try {
+        if (!_tcPipeline || _tcPipelineSubgroupSize !== maxSubgroupSize) {
+            const shaderCode = buildTensorCoreMatMulShader(maxSubgroupSize);
+            _tcPipeline = getOrCreatePipeline(device, shaderCode);
+            _tcPipelineSubgroupSize = maxSubgroupSize;
+        }
+        const pipeline = _tcPipeline;
+
+        const paramBuf = createUniformBuffer(device, packU32(batchSize, M, N, K));
+        const aBuf = uploadBuffer(device, aStorage);
+        const bBuf = uploadBuffer(device, bStorage);
+        const outBuf = createOutputBuffer(device, outSize);
+
+        const bindGroup = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: aBuf } },
+                { binding: 1, resource: { buffer: bBuf } },
+                { binding: 2, resource: { buffer: outBuf } },
+                { binding: 3, resource: { buffer: paramBuf } },
+            ],
+        });
+
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.dispatchWorkgroups(N / TC_TILE, M / TC_TILE, batchSize);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+
+        const result = await readbackBuffer(device, outBuf, outSize);
+        for (let i = 0; i < outSize; i++) {
+            outStorage[i] = result[i]!;
+        }
+
+        destroyAll(aBuf, bBuf, outBuf, paramBuf);
+        return true;
+    } catch {
+        _tcPipeline = null;
+        _tcPipelineSubgroupSize = 0;
+        return false;
+    }
 }

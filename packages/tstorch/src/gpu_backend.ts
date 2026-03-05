@@ -20,7 +20,58 @@ export function destroyDevice(): void {
     _device?.destroy();
     _device = null;
     _gpu = null;
+    destroyTensorCoreDevice();
     pipelineCache.clear();
+}
+
+// ---- Experimental tensor core (subgroup matrix) device ----
+
+let _tcDevice: GPUDevice | null = null;
+let _tcProbed = false;
+
+/**
+ * Try to obtain a GPUDevice with experimental subgroup matrix support.
+ * Returns null when the feature is not available on this adapter/platform.
+ * Dawn (the backend for the `webgpu` npm package) exposes Apple simdgroup_matrix
+ * (8x8 f32 on Metal/Apple7+) and Vulkan VK_KHR_cooperative_matrix behind the
+ * `allow_unsafe_apis` toggle and the `chromium-experimental-subgroup-matrix`
+ * device feature.
+ */
+export async function getTensorCoreDevice(): Promise<GPUDevice | null> {
+    if (_tcDevice) return _tcDevice;
+    if (_tcProbed) return null;
+    _tcProbed = true;
+
+    try {
+        const gpu = create([
+            'enable-dawn-features=allow_unsafe_apis',
+        ]) as unknown as GPU;
+        const adapter = await gpu.requestAdapter();
+        if (!adapter) return null;
+
+        const featureName: string | null =
+            adapter.features.has('chromium-experimental-subgroup-matrix')
+                ? 'chromium-experimental-subgroup-matrix'
+                : adapter.features.has('subgroup-matrix')
+                    ? 'subgroup-matrix'
+                    : null;
+        if (!featureName) return null;
+
+        _tcDevice = await adapter.requestDevice({
+            requiredFeatures: [featureName as GPUFeatureName],
+        });
+        return _tcDevice;
+    } catch {
+        return null;
+    }
+}
+
+export function destroyTensorCoreDevice(): void {
+    // Intentionally skip device.destroy() -- Dawn's experimental subgroup matrix
+    // path can SIGSEGV during teardown (the compute results are correct).
+    // Letting the device be GC'd avoids the crash in test/process-exit scenarios.
+    _tcDevice = null;
+    _tcProbed = false;
 }
 
 // Buffer helpers 
