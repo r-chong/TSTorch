@@ -139,10 +139,8 @@ export function tensorReduce(
 }
 
 /**
- * Parallel matrix multiply. Outer loop (output elements) in parallel
- * computes every entry of the output matrix
- * 
- * Restriction: it only handles inputs that are already 2D or 3D, and just pads 2D up to 3D
+ * Matrix multiply supporting 2D and 3D inputs with batch broadcasting.
+ * 2D inputs are padded to 3D internally; if both were 2D the output is squeezed back.
  */
 export function tensorMatrixMultiply(A: Tensor, B: Tensor): Tensor {
     // Index from end of tensor shape, such that length - 2 is rows, length -1 is cols
@@ -191,9 +189,6 @@ export function tensorMatrixMultiply(A: Tensor, B: Tensor): Tensor {
         
         broadcastIndex(outIndex, outShape, a.shape, aIndex);
         broadcastIndex(outIndex, outShape, b.shape, bIndex);
-
-        const m = outIndex[outShape.length - 2];
-        const n = outIndex[outShape.length - 1];
 
         let acc = 0;
 
