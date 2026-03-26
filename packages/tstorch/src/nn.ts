@@ -24,4 +24,13 @@ export function tile(input: Tensor, kernel: [number, number]): [Tensor, number, 
     if (width % kw != 0) {
         console.error("input width != kernel width");
     }
+    const newHeight = height / kh;
+    const newWidth = width / kh;
+
+    // add an extra dimension by applying view.
+    const tiled = input.view(batch, channel, newHeight, kh, newWidth, kw);
+
+    // use other functions such as avgpool2d to reduce over the tiled tensor.
+
+    return [tiled, newHeight, newWidth];
 }
