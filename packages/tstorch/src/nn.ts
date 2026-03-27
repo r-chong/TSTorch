@@ -82,7 +82,3 @@ export function avgpool2d(input: Tensor, kernel: [number, number]): Tensor {
 
     return new Tensor(outputData);
 }
-
-export function max(input: Tensor, kernel: [number, number]): Tensor {
-
-} 
