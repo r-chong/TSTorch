@@ -54,7 +54,8 @@ export function avgpool2d(input: Tensor, kernel: [number, number]): Tensor {
 
     const inputData = perm.data;
 
-    const reduceFn = fastTensorReduce((acc: number, x: number) => acc + x);
+    const fn = (acc: number, x: number) => acc + x;
+    const reduceFn = fastTensorReduce(sumFn);
 
     // for 2d convolution pooling, we reduce over both cols and rows
 
@@ -81,3 +82,7 @@ export function avgpool2d(input: Tensor, kernel: [number, number]): Tensor {
 
     return new Tensor(outputData);
 }
+
+export function max(input: Tensor, kernel: [number, number]): Tensor {
+
+} 
