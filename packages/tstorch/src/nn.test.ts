@@ -6,6 +6,50 @@ function assertClose(actual: number, expected: number, tolerance = 1e-5) {
   expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tolerance);
 }
 
+function tensorGradCheck(
+  fn: (...tensors: Tensor[]) => Tensor,
+  ...inputs: Tensor[]
+): void {
+  const epsilon = 1e-5;
+
+  const output = fn(...inputs);
+  const scalarOutput = output.sum();
+  scalarOutput.backward();
+
+  for (let inputIdx = 0; inputIdx < inputs.length; inputIdx++) {
+    const input = inputs[inputIdx]!;
+    const grad = input.grad;
+    expect(grad).not.toBeNull();
+    expect(grad!.shape).toEqual(input.shape);
+
+    for (let i = 0; i < input.size; i++) {
+      const idx: number[] = [];
+      let remaining = i;
+      for (let d = input.dims - 1; d >= 0; d--) {
+        idx.unshift(remaining % input.shape[d]!);
+        remaining = Math.floor(remaining / input.shape[d]!);
+      }
+
+      const originalVal = input.get(idx);
+
+      input.set(idx, originalVal + epsilon);
+      const plusOutput = fn(...inputs).sum().item();
+
+      input.set(idx, originalVal - epsilon);
+      const minusOutput = fn(...inputs).sum().item();
+
+      input.set(idx, originalVal);
+
+      const numericalGrad = (plusOutput - minusOutput) / (2 * epsilon);
+      const analyticalGrad = grad!.get(idx);
+
+      expect(analyticalGrad).toBeCloseTo(numericalGrad, 3);
+    }
+
+    input.zero_grad_();
+  }
+}
+
 // ============================================================
 // tile()
 // ============================================================
@@ -342,5 +386,98 @@ describe('dropout', () => {
     const t = Tensor.rand([2, 3, 4]);
     const out = dropout(t, 0.3);
     expect(out.shape).toEqual([2, 3, 4]);
+  });
+});
+
+// ============================================================
+// backward pass (gradient checks)
+// ============================================================
+
+describe('avgpool2d backward', () => {
+  test('gradient check — 2x2 kernel', () => {
+    const input = Tensor.rand([1, 1, 4, 4]);
+    tensorGradCheck((x) => avgpool2d(x, [2, 2]), input);
+  });
+
+  test('gradient check — multi-batch multi-channel', () => {
+    const input = Tensor.rand([2, 2, 4, 4]);
+    tensorGradCheck((x) => avgpool2d(x, [2, 2]), input);
+  });
+
+  test('gradient check — non-square kernel', () => {
+    const input = Tensor.rand([1, 1, 4, 6]);
+    tensorGradCheck((x) => avgpool2d(x, [2, 3]), input);
+  });
+
+  test('gradient check — global pooling', () => {
+    const input = Tensor.rand([1, 1, 2, 2]);
+    tensorGradCheck((x) => avgpool2d(x, [2, 2]), input);
+  });
+});
+
+describe('maxpool2d backward', () => {
+  test('gradient check — 2x2 kernel', () => {
+    // Use distinct values to avoid ties at the max boundary
+    const input = Tensor.tensor([[[[1, 5, 2, 8], [3, 7, 4, 6], [9, 2, 11, 3], [10, 1, 12, 4]]]]);
+    tensorGradCheck((x) => maxpool2d(x, [2, 2]), input);
+  });
+
+  test('gradient check — multi-batch', () => {
+    const input = Tensor.tensor([
+      [[[1, 5, 9, 13], [2, 6, 10, 14], [3, 7, 11, 15], [4, 8, 12, 16]]],
+      [[[16, 12, 8, 4], [15, 11, 7, 3], [14, 10, 6, 2], [13, 9, 5, 1]]],
+    ]);
+    tensorGradCheck((x) => maxpool2d(x, [2, 2]), input);
+  });
+
+  test('gradient check — 2x1 kernel', () => {
+    const input = Tensor.tensor([[[[1, 5, 9, 13], [3, 7, 11, 15], [2, 6, 10, 14], [4, 8, 12, 16]]]]);
+    tensorGradCheck((x) => maxpool2d(x, [2, 1]), input);
+  });
+});
+
+describe('softmax backward', () => {
+  test('gradient check — dim=1 on 2D', () => {
+    const input = Tensor.rand([1, 4]);
+    tensorGradCheck((x) => softmax(x, 1), input);
+  });
+
+  test('gradient check — dim=3 on 4D', () => {
+    const input = Tensor.rand([1, 1, 2, 3]);
+    tensorGradCheck((x) => softmax(x, 3), input);
+  });
+
+  test('gradient check — dim=0', () => {
+    const input = Tensor.rand([3, 2]);
+    tensorGradCheck((x) => softmax(x, 0), input);
+  });
+});
+
+describe('logsoftmax backward', () => {
+  test('gradient check — dim=1 on 2D', () => {
+    const input = Tensor.rand([1, 4]);
+    tensorGradCheck((x) => logsoftmax(x, 1), input);
+  });
+
+  test('gradient check — dim=3 on 4D', () => {
+    const input = Tensor.rand([1, 1, 2, 3]);
+    tensorGradCheck((x) => logsoftmax(x, 3), input);
+  });
+
+  test('gradient check — dim=0', () => {
+    const input = Tensor.rand([3, 2]);
+    tensorGradCheck((x) => logsoftmax(x, 0), input);
+  });
+});
+
+describe('dropout backward', () => {
+  test('gradient check — rate=0 (identity)', () => {
+    const input = Tensor.rand([2, 3]);
+    tensorGradCheck((x) => dropout(x, 0.0), input);
+  });
+
+  test('gradient check — ignore=true (identity)', () => {
+    const input = Tensor.rand([2, 3]);
+    tensorGradCheck((x) => dropout(x, 0.5, true), input);
   });
 });
