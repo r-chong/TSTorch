@@ -1,5 +1,74 @@
 import { Tensor } from "./tensor.js"
+import { TensorData, shapeProduct, type Shape } from "./tensor_data.js"
+import { Module, Parameter } from "./module.js"
 import "./tensor_functions.js"
+
+// ============================================================
+// Modules
+// ============================================================
+
+export class Linear extends Module {
+    weight!: Parameter<Tensor>;
+    bias!: Parameter<Tensor>;
+    inFeatures: number;
+    outFeatures: number;
+
+    constructor(inFeatures: number, outFeatures: number) {
+        super();
+        this.inFeatures = inFeatures;
+        this.outFeatures = outFeatures;
+        const bound = 1 / Math.sqrt(inFeatures);
+        this.weight = new Parameter(randRange([inFeatures, outFeatures], -bound, bound));
+        this.bias = new Parameter(randRange([outFeatures], -bound, bound));
+    }
+
+    forward(input: Tensor): Tensor {
+        return input.matmul(this.weight.value).add(this.bias.value);
+    }
+}
+
+export class ReLU extends Module {
+    forward(input: Tensor): Tensor {
+        return input.relu();
+    }
+}
+
+export class Sigmoid extends Module {
+    forward(input: Tensor): Tensor {
+        return input.sigmoid();
+    }
+}
+
+// ============================================================
+// Loss functions
+// ============================================================
+
+export function mseLoss(input: Tensor, target: Tensor): Tensor {
+    const diff = input.sub(target);
+    return diff.mul(diff).mean();
+}
+
+export function crossEntropyLoss(input: Tensor, target: Tensor): Tensor {
+    const lsm = logsoftmax(input, input.dims - 1);
+    return lsm.mul(target).neg().sum(input.dims - 1).mean();
+}
+
+// ============================================================
+// Initialization helpers
+// ============================================================
+
+function randRange(shape: Shape, low: number, high: number): Tensor {
+    const size = shapeProduct(shape);
+    const storage = new Float64Array(size);
+    for (let i = 0; i < size; i++) {
+        storage[i] = Math.random() * (high - low) + low;
+    }
+    return new Tensor(new TensorData(storage, [...shape]));
+}
+
+// ============================================================
+// Functional NN ops
+// ============================================================
 
 /**
  * Reshape an image tensor for 2D pooling.
