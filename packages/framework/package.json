@@ -1,12 +1,16 @@
 {
   "name": "@mni-ml/framework",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A minimal machine learning library in TypeScript — autograd, tensors, neural network modules, and training utilities inspired by minitorch.",
   "license": "MIT",
+  "homepage": "https://github.com/mni-ml/framework#readme",
+  "bugs": {
+    "url": "https://github.com/mni-ml/framework/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/r-chong/TSTorch.git",
+    "url": "https://github.com/mni-ml/framework.git",
     "directory": "packages/framework"
   },
   "keywords": [
