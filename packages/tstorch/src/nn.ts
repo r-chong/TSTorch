@@ -1,5 +1,4 @@
 import { Tensor } from "./tensor.js"
-import "./tensor_functions.js"
 
 /**
  * Reshape an image tensor for 2D pooling.
