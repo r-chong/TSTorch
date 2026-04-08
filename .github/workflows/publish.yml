@@ -166,7 +166,7 @@ jobs:
       - name: Install dependencies and build TypeScript
         shell: bash
         run: |
-          npm install
+          npm install --no-optional
           npx tsc
 
       - name: Run tests

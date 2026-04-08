@@ -823,35 +823,25 @@ if (typeof native.biasGelu === 'function') {
 
 section('End-to-end training');
 
-class XORNet extends Module {
-    constructor() {
-        super();
-        this.l1 = new Linear(2, 8);
-        this.l2 = new Linear(8, 1);
-    }
-    forward(x) {
-        return this.l2.forward(this.l1.forward(x).relu());
-    }
-}
+// Simple regression: learn y = 2x + 1 (deterministic, not sensitive to init)
+const trainX = Tensor.fromFloat32(new Float32Array([0, 1, 2, 3, 4, 5]), [6, 1]);
+const trainY = Tensor.fromFloat32(new Float32Array([1, 3, 5, 7, 9, 11]), [6, 1]);
+const regNet = new Linear(1, 1);
+const regOptim = new Adam(regNet.parameters(), { lr: 0.05 });
 
-const xorNet = new XORNet();
-const xorOptim = new Adam(xorNet.parameters(), { lr: 0.01 });
-
-const xorInput = Tensor.fromFloat32(new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]), [4, 2]);
-const xorTarget = Tensor.fromFloat32(new Float32Array([0, 1, 1, 0]), [4, 1]);
-
-let firstLoss = null;
-for (let i = 0; i < 500; i++) {
-    xorOptim.zeroGrad();
-    const pred = xorNet.forward(xorInput);
-    const loss = mseLoss(pred, xorTarget);
-    if (i === 0) firstLoss = loss.toFloat32()[0];
+let earlyLoss = null;
+for (let i = 0; i < 200; i++) {
+    regOptim.zeroGrad();
+    const pred = regNet.forward(trainX);
+    const loss = mseLoss(pred, trainY);
+    if (i === 10) earlyLoss = loss.toFloat32()[0];
     loss.backward();
-    xorOptim.step();
+    regOptim.step();
 }
-const finalPred = xorNet.forward(xorInput);
-const finalLoss = mseLoss(finalPred, xorTarget).toFloat32()[0];
-assert(finalLoss < firstLoss, 'training reduces loss');
+const finalPred = regNet.forward(trainX);
+const finalLoss = mseLoss(finalPred, trainY).toFloat32()[0];
+assert(finalLoss < earlyLoss, 'training reduces loss');
+assert(finalLoss < 1.0, 'training converges to low loss');
 
 // ============================================================
 // Summary

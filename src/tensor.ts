@@ -5,14 +5,55 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname_f = dirname(fileURLToPath(import.meta.url));
 
+// Check whether CUDA drivers are available on this system.
+// The CUDA native binary will abort the process on load if libcuda.so is missing,
+// so we must check before attempting require().
+function hasCudaDriver(): boolean {
+    if (process.platform !== 'linux') return false;
+    const searchPaths = [
+        '/usr/lib/x86_64-linux-gnu',
+        '/usr/lib64',
+        '/usr/local/cuda/lib64',
+        '/usr/local/cuda/targets/x86_64-linux/lib',
+        '/usr/lib',
+    ];
+    const ldPath = process.env['LD_LIBRARY_PATH'] ?? '';
+    if (ldPath) searchPaths.push(...ldPath.split(':').filter(Boolean));
+    for (const dir of searchPaths) {
+        if (existsSync(join(dir, 'libcuda.so')) || existsSync(join(dir, 'libcuda.so.1'))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Order matters: GPU packages are tried first, then CPU fallback.
-const PLATFORM_PACKAGES: Record<string, string[]> = {
-    'darwin-arm64':  ['@mni-ml/framework-darwin-arm64-webgpu', '@mni-ml/framework-darwin-arm64'],
-    'darwin-x64':    ['@mni-ml/framework-darwin-x64-webgpu',   '@mni-ml/framework-darwin-x64'],
-    'linux-x64':     ['@mni-ml/framework-linux-x64-gnu-cuda',  '@mni-ml/framework-linux-x64-gnu'],
-    'linux-arm64':   ['@mni-ml/framework-linux-arm64-gnu'],
-    'win32-x64':     ['@mni-ml/framework-win32-x64-msvc-webgpu', '@mni-ml/framework-win32-x64-msvc'],
-};
+// CUDA entries are only included when a CUDA driver is detected.
+function getPlatformPackages(): Record<string, string[]> {
+    const cuda = hasCudaDriver();
+    return {
+        'darwin-arm64':  ['@mni-ml/framework-darwin-arm64-webgpu', '@mni-ml/framework-darwin-arm64'],
+        'darwin-x64':    ['@mni-ml/framework-darwin-x64-webgpu',   '@mni-ml/framework-darwin-x64'],
+        'linux-x64':     cuda
+            ? ['@mni-ml/framework-linux-x64-gnu-cuda', '@mni-ml/framework-linux-x64-gnu']
+            : ['@mni-ml/framework-linux-x64-gnu'],
+        'linux-arm64':   ['@mni-ml/framework-linux-arm64-gnu'],
+        'win32-x64':     ['@mni-ml/framework-win32-x64-msvc-webgpu', '@mni-ml/framework-win32-x64-msvc'],
+    };
+}
+
+function getLocalSuffixes(): Record<string, string[]> {
+    const cuda = hasCudaDriver();
+    return {
+        'darwin-arm64': ['darwin-arm64-webgpu', 'darwin-arm64'],
+        'darwin-x64':   ['darwin-x64-webgpu',   'darwin-x64'],
+        'linux-x64':    cuda
+            ? ['linux-x64-gnu-cuda', 'linux-x64-gnu']
+            : ['linux-x64-gnu'],
+        'linux-arm64':  ['linux-arm64-gnu'],
+        'win32-x64':    ['win32-x64-msvc-webgpu', 'win32-x64-msvc'],
+    };
+}
 
 function loadNative() {
     const require = createRequire(import.meta.url);
@@ -20,22 +61,15 @@ function loadNative() {
     const arch = process.arch;
     const key = `${platform}-${arch}`;
 
-    // 1. Try prebuilt platform packages (CUDA first on Linux, then CPU fallback)
-    const candidates_pkg = PLATFORM_PACKAGES[key] ?? [];
+    // 1. Try prebuilt platform packages (GPU first, then CPU fallback)
+    const candidates_pkg = getPlatformPackages()[key] ?? [];
     for (const pkgName of candidates_pkg) {
         try { return require(pkgName); } catch {}
     }
 
     // 2. Fall back to a local .node file (dev builds / build-from-source)
     //    GPU binaries are tried first, then CPU fallback.
-    const suffixMap: Record<string, string[]> = {
-        'darwin-arm64': ['darwin-arm64-webgpu', 'darwin-arm64'],
-        'darwin-x64':   ['darwin-x64-webgpu',   'darwin-x64'],
-        'linux-x64':    ['linux-x64-gnu-cuda',  'linux-x64-gnu'],
-        'linux-arm64':  ['linux-arm64-gnu'],
-        'win32-x64':    ['win32-x64-msvc-webgpu', 'win32-x64-msvc'],
-    };
-    const suffixes = suffixMap[key] ?? [key];
+    const suffixes = getLocalSuffixes()[key] ?? [key];
     const ext = platform === 'win32' ? 'dll' : platform === 'darwin' ? 'dylib' : 'so';
     const candidates_file: string[] = [];
     for (const suffix of suffixes) {
