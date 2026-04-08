@@ -1,6 +1,6 @@
 {
   "name": "@mni-ml/framework-darwin-arm64",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "macOS Apple Silicon native binary for @mni-ml/framework",
   "os": [
     "darwin"
