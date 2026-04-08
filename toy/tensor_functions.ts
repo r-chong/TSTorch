@@ -60,6 +60,27 @@ export function id(a: TensorData): TensorData {
     return out;
 }
 
+export function sin(a: TensorData): TensorData {
+    const out = zeros(a.shape);
+    const mapFn = tensorMap(operators.sin);
+    mapFn(out.storage, out.shape, out.strides, a.storage, a.shape, a.strides);
+    return out;
+}
+
+export function cos(a: TensorData): TensorData {
+    const out = zeros(a.shape);
+    const mapFn = tensorMap(operators.cos);
+    mapFn(out.storage, out.shape, out.strides, a.storage, a.shape, a.strides);
+    return out;
+}
+
+export function sqrt(a: TensorData): TensorData {
+    const out = zeros(a.shape);
+    const mapFn = tensorMap(operators.sqrt);
+    mapFn(out.storage, out.shape, out.strides, a.storage, a.shape, a.strides);
+    return out;
+}
+
 export function inv(a: TensorData): TensorData {
     const out = zeros(a.shape);
     const mapFn = tensorMap(operators.inv);
@@ -284,6 +305,41 @@ export class Inv extends TensorFunction {
         const [a] = ctx.savedTensors;
         // -grad / a^2
         return [gradOutput.neg().mul(a!.mul(a!).inv())];
+    }
+}
+
+export class Sin extends TensorFunction {
+    static forward(ctx: TensorContext, a: Tensor): Tensor {
+        ctx.saveForBackward(a);
+        return new Tensor(sin(a.data));
+    }
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        const [a] = ctx.savedTensors;
+        return [gradOutput.mul(new Tensor(cos(a!.data)))];
+    }
+}
+
+export class Cos extends TensorFunction {
+    static forward(ctx: TensorContext, a: Tensor): Tensor {
+        ctx.saveForBackward(a);
+        return new Tensor(cos(a.data));
+    }
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        const [a] = ctx.savedTensors;
+        return [gradOutput.mul(new Tensor(sin(a!.data))).neg()];
+    }
+}
+
+export class Sqrt extends TensorFunction {
+    static forward(ctx: TensorContext, a: Tensor): Tensor {
+        const result = new Tensor(sqrt(a.data));
+        ctx.saveForBackward(result);
+        return result;
+    }
+    static backward(ctx: TensorContext, gradOutput: Tensor): Tensor[] {
+        const [result] = ctx.savedTensors;
+        // d/dx sqrt(x) = 1 / (2 * sqrt(x)) = grad / (2 * result)
+        return [gradOutput.mul(result!.mul(Tensor.tensor(2)).inv())];
     }
 }
 
