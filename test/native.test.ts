@@ -2,7 +2,7 @@ import {
     Tensor, native,
     flashAttention, residualLayerNorm, biasGelu,
 } from '../dist/index.js';
-import { assert, section, summarize } from './helpers.js';
+import { assert, skip, section, summarize } from './helpers.js';
 
 // ============================================================
 // FlashAttention / ResidualLayerNorm / BiasGelu (GPU/CUDA only)
@@ -22,7 +22,7 @@ if (typeof native.flashAttention === 'function') {
     assert(attOut.shape[2] === seqLen, 'attention seq_len');
     assert(attOut.shape[3] === headDim, 'attention head_dim');
 } else {
-    console.log('  (skipped — flashAttention not available in CPU build)');
+    skip('flashAttention not available in CPU build');
 }
 
 if (typeof native.residualLayernorm === 'function') {
@@ -33,7 +33,7 @@ if (typeof native.residualLayernorm === 'function') {
     const rlnOut = residualLayerNorm(rlnX, rlnResidual, rlnGamma, rlnBeta);
     assert(rlnOut.shape[0] === 2 && rlnOut.shape[1] === 4, 'residualLayerNorm shape');
 } else {
-    console.log('  (skipped — residualLayerNorm not available in CPU build)');
+    skip('residualLayerNorm not available in CPU build');
 }
 
 if (typeof native.biasGelu === 'function') {
@@ -42,7 +42,7 @@ if (typeof native.biasGelu === 'function') {
     const bgOut = biasGelu(bgX, bgBias);
     assert(bgOut.shape[0] === 2 && bgOut.shape[1] === 4, 'biasGelu shape');
 } else {
-    console.log('  (skipped — biasGelu not available in CPU build)');
+    skip('biasGelu not available in CPU build');
 }
 
 summarize();
