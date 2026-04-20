@@ -639,13 +639,13 @@ pub fn kv_cache_free(cache_id: u32) {
 }
 
 #[napi]
-pub fn kv_cache_decode_step(cache_id: u32, q: u32, k: u32, v: u32, scale: f64) -> u32 {
+pub fn kv_cache_decode_step(cache_id: u32, q: u32, k: u32, v: u32, scale: f64) -> Result<u32> {
     let mut eng = engine().lock();
     let Engine { store, kv_caches, .. } = &mut *eng;
     let cache = kv_caches
         .get_mut(&cache_id)
-        .unwrap_or_else(|| panic!("invalid kv cache id: {}", cache_id));
-    cache
+        .ok_or_else(|| Error::from_reason(format!("invalid kv cache id: {}", cache_id)))?;
+    let out = cache
         .append_and_decode(
             q as TensorId,
             k as TensorId,
@@ -653,23 +653,25 @@ pub fn kv_cache_decode_step(cache_id: u32, q: u32, k: u32, v: u32, scale: f64) -
             scale as f32,
             store,
         )
-        .unwrap_or_else(|e| panic!("kv cache decode failed: {e}")) as u32
+        .map_err(|e| Error::from_reason(format!("kv cache decode failed: {e}")))? as u32;
+    Ok(out)
 }
 
 #[napi]
-pub fn kv_cache_append(cache_id: u32, k: u32, v: u32) {
+pub fn kv_cache_append(cache_id: u32, k: u32, v: u32) -> Result<()> {
     let mut eng = engine().lock();
     let Engine { store, kv_caches, .. } = &mut *eng;
     let cache = kv_caches
         .get_mut(&cache_id)
-        .unwrap_or_else(|| panic!("invalid kv cache id: {}", cache_id));
+        .ok_or_else(|| Error::from_reason(format!("invalid kv cache id: {}", cache_id)))?;
     cache
         .append(
             k as TensorId,
             v as TensorId,
             store,
         )
-        .unwrap_or_else(|e| panic!("kv cache append failed: {e}"));
+        .map_err(|e| Error::from_reason(format!("kv cache append failed: {e}")))?;
+    Ok(())
 }
 
 #[cfg(feature = "cuda")]
