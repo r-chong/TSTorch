@@ -14,18 +14,30 @@
 
 pub mod activation;
 pub mod adamw;
+pub mod cross_entropy;
+pub mod data;
 pub mod dropout;
 pub mod elementwise;
+pub mod embedding;
+pub mod fused_ops;
 pub mod grad_util;
+pub mod layernorm;
 pub mod matmul;
 pub mod mixed_precision;
 pub mod reduce;
+pub mod softmax;
 
 pub use activation::*;
 pub use adamw::*;
+pub use cross_entropy::*;
+pub use data::*;
 pub use dropout::*;
 pub use elementwise::*;
+pub use embedding::*;
+pub use fused_ops::*;
 pub use grad_util::*;
+pub use layernorm::*;
 pub use matmul::*;
 pub use mixed_precision::*;
 pub use reduce::*;
+pub use softmax::*;
