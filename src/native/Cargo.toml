@@ -11,6 +11,11 @@ default = ["cpu"]
 cpu = []
 cuda = ["dep:cudarc"]
 webgpu = ["dep:wgpu", "dep:pollster"]
+# Folds the sibling mni-framework-cutile crate in as a library dependency.
+# Used together with cuda/cpu — the cutile API is exposed under
+# `mni_framework_native::cutile` and an additional set of `cutile_*`
+# N-API entry points so a single .node file can ship both backends.
+cutile = ["dep:mni-framework-cutile"]
 
 [dependencies]
 napi = { version = "2", features = ["napi8"] }
@@ -18,6 +23,7 @@ napi-derive = "2"
 cudarc = { version = "0.16", features = ["cublas", "nvrtc", "curand", "cuda-version-from-build-system"], optional = true }
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
+mni-framework-cutile = { path = "../cutile", optional = true, default-features = false }
 bytemuck = { version = "1.14", features = ["derive"] }
 rand = "0.8"
 rand_distr = "0.4"

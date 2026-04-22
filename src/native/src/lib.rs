@@ -1,9 +1,17 @@
 mod allocator;
 mod autograd;
+#[cfg(feature = "cutile")]
+mod cutile_backend;
 mod device;
 mod ops;
 mod tensor;
 mod utils;
+
+/// Re-export of the `mni_framework_cutile` crate when the `cutile` feature
+/// is enabled — Rust callers can reach the cuTile-backed `TensorStore` and
+/// ops directly via `mni_framework_native::cutile`.
+#[cfg(feature = "cutile")]
+pub use mni_framework_cutile as cutile;
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
