@@ -13,5 +13,6 @@ pub mod matmul;
 pub mod mixed_precision;
 pub mod norm;
 pub mod optimizer;
+pub mod pooling;
 pub mod reduce;
 pub mod softmax;
