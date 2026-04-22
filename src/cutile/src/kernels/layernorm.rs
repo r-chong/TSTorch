@@ -32,12 +32,12 @@ pub mod layernorm_kernels {
         gamma: &Tensor<f32, { [C] }>,
         beta: &Tensor<f32, { [C] }>,
         eps: f32,
+        inv_c: f32,
     ) {
         let tx: Tile<f32, { [1, C] }> = load_tile_like_2d(x, out);
 
         let sum_row: Tile<f32, { [1] }> = reduce_sum(tx, 1i32);
-        let inv_c_s: f32 = 1.0f32 / (C as f32);
-        let inv_c_1: Tile<f32, { [1] }> = inv_c_s.broadcast(const_shape![1]);
+        let inv_c_1: Tile<f32, { [1] }> = inv_c.broadcast(const_shape![1]);
         let mean: Tile<f32, { [1] }> = sum_row * inv_c_1;
         mean_out.store(mean);
 
@@ -91,6 +91,7 @@ pub mod layernorm_kernels {
         mean: &Tensor<f32, { [-1] }>,
         rstd: &Tensor<f32, { [-1] }>,
         gamma: &Tensor<f32, { [C] }>,
+        inv_c: f32,
     ) {
         let tdy: Tile<f32, { [1, C] }> = load_tile_like_2d(dy, dx);
         let tx: Tile<f32, { [1, C] }> = load_tile_like_2d(x, dx);
@@ -120,14 +121,13 @@ pub mod layernorm_kernels {
         let dot_dy: Tile<f32, { [1] }> = reduce_sum(dyg, 1i32);
         let dot_dy_xhat: Tile<f32, { [1] }> = reduce_sum(dyg_xhat, 1i32);
 
-        let inv_c_s: f32 = 1.0f32 / (C as f32);
         let dot_dy_b: Tile<f32, { [1, C] }> = dot_dy
             .reshape(const_shape![1, 1])
             .broadcast(const_shape![1, C]);
         let dot_dy_xhat_b: Tile<f32, { [1, C] }> = dot_dy_xhat
             .reshape(const_shape![1, 1])
             .broadcast(const_shape![1, C]);
-        let inv_c_b: Tile<f32, { [1, C] }> = inv_c_s.broadcast(const_shape![1, C]);
+        let inv_c_b: Tile<f32, { [1, C] }> = inv_c.broadcast(const_shape![1, C]);
         let correction: Tile<f32, { [1, C] }> = (dot_dy_b + xhat * dot_dy_xhat_b) * inv_c_b;
 
         dx.store(r_b * (dyg - correction));

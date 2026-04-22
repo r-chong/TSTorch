@@ -64,6 +64,7 @@ pub fn layernorm_forward(
             &gv,
             &bv,
             eps,
+            1.0f32 / c as f32,
         )
         .generics(vec![c.to_string()])
         .sync_on(&rt.stream)
@@ -132,6 +133,7 @@ pub fn layernorm_backward(
             &mv,
             &rv,
             &gv,
+            1.0f32 / c as f32,
         )
         .generics(vec![c.to_string()])
         .sync_on(&rt.stream)

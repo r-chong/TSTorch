@@ -32,6 +32,7 @@ pub mod fused_ops_kernels {
         gamma: &Tensor<f32, { [C] }>,
         beta: &Tensor<f32, { [C] }>,
         eps: f32,
+        inv_c: f32,
     ) {
         let tx: Tile<f32, { [1, C] }> = load_tile_like_2d(x, out);
         let tr: Tile<f32, { [1, C] }> = load_tile_like_2d(residual, out);
@@ -39,8 +40,7 @@ pub mod fused_ops_kernels {
         residual_out.store(r);
 
         let sum_row: Tile<f32, { [1] }> = reduce_sum(r, 1i32);
-        let inv_c_s: f32 = 1.0f32 / (C as f32);
-        let inv_c_1: Tile<f32, { [1] }> = inv_c_s.broadcast(const_shape![1]);
+        let inv_c_1: Tile<f32, { [1] }> = inv_c.broadcast(const_shape![1]);
         let mean: Tile<f32, { [1] }> = sum_row * inv_c_1;
         mean_out.store(mean);
 
