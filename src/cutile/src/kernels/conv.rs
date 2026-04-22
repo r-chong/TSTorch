@@ -37,17 +37,24 @@ pub mod conv_kernels {
     ///                                * weight[co, ci, k]
     /// ```
     ///
-    /// Gathers a `[CI, K]` input window via `pointer_to_tile + offset_tile`
-    /// with zero padding for OOB reads — cuTile partitions don't support
-    /// element-granular offsets, and conv's sliding window isn't
-    /// tile-aligned when `stride != K`.  The weight tile `[1, CI, K]` at
-    /// `(co, 0, 0)` is a regular tile-aligned partition load since `CI`
-    /// and `K` match the partition's tile extents.
+    /// Both the input window `[CIP, KP]` and the weight slice `[CIP, KP]` are
+    /// pointer-tile gathers — cuTile tile shapes must be powers of two, and
+    /// conv kernel sizes (3, 5, 7, …) and channel counts often aren't.  The
+    /// caller passes `CIP = next_pow2(CI)` and `KP = next_pow2(K)` so the
+    /// tile dims are valid; lanes with `ci ≥ CI` or `k ≥ K` are masked off
+    /// (the loaded value falls back to `0.0`, contributing nothing to the
+    /// reduction).  Offsets still use the original `CI`/`K` strides because
+    /// the underlying tensors are sized by the unpadded dims.
     #[cutile::entry()]
-    pub unsafe fn conv1d_forward<const CI: i32, const K: i32>(
+    pub unsafe fn conv1d_forward<
+        const CI: i32,
+        const K: i32,
+        const CIP: i32,
+        const KP: i32,
+    >(
         out: &mut Tensor<f32, { [1, 1, 1] }>,
         inp_ptr: *mut f32,
-        weight: &Tensor<f32, { [-1, -1, -1] }>,
+        weight_ptr: *mut f32,
         l_in: i32,
         stride: i32,
         padding: i32,
@@ -57,47 +64,120 @@ pub mod conv_kernels {
         let co: i32 = pid.1;
         let l_out: i32 = pid.2;
 
-        let w_part: Partition<f32, { [1, CI, K] }> = weight.partition(const_shape![1, CI, K]);
-        let w_tile_3d: Tile<f32, { [1, CI, K] }> = w_part.load([co, 0i32, 0i32]);
-        let w_tile: Tile<f32, { [CI, K] }> = w_tile_3d.reshape(const_shape![CI, K]);
+        // Padded iotas for non-pow2 CI/K.
+        let ci_iota: Tile<i32, { [CIP] }> = iota(const_shape![CIP]);
+        let k_iota: Tile<i32, { [KP] }> = iota(const_shape![KP]);
+
+        // Pad mask: lane (ci, k) is valid iff ci < CI && k < K.  We do the
+        // rank-up reshape in i32 space (cuTile can reshape int tiles freely)
+        // and only convert to bool via the final lt_tile comparison, which
+        // sidesteps a quirk where bool-tile reshape verification rejects
+        // some valid rank-up patterns.
+        let ci_lim: i32 = CI;
+        let k_lim: i32 = K;
+        let ci_iota_2d: Tile<i32, { [CIP, KP] }> = ci_iota
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let ci_lim_1: Tile<i32, { [CIP] }> = ci_lim.broadcast(const_shape![CIP]);
+        let ci_lim_2d: Tile<i32, { [CIP, KP] }> = ci_lim_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let ci_pad_ok: Tile<bool, { [CIP, KP] }> = lt_tile(ci_iota_2d, ci_lim_2d);
+
+        let k_iota_2d: Tile<i32, { [CIP, KP] }> = k_iota
+            .reshape(const_shape![1, KP])
+            .broadcast(const_shape![CIP, KP]);
+        let k_lim_1: Tile<i32, { [KP] }> = k_lim.broadcast(const_shape![KP]);
+        let k_lim_2d: Tile<i32, { [CIP, KP] }> = k_lim_1
+            .reshape(const_shape![1, KP])
+            .broadcast(const_shape![CIP, KP]);
+        let k_pad_ok: Tile<bool, { [CIP, KP] }> = lt_tile(k_iota_2d, k_lim_2d);
+
+        let pad_ok: Tile<bool, { [CIP, KP] }> = ci_pad_ok & k_pad_ok;
+
+        // Weight gather: weight[co, ci, k] at co*CI*K + ci*K + k.
+        let k_const: i32 = K;
+        let k_t_ci_w: Tile<i32, { [CIP] }> = k_const.broadcast(const_shape![CIP]);
+        let ci_off_w_1d: Tile<i32, { [CIP] }> = ci_iota * k_t_ci_w;
+        let ci_off_w: Tile<i32, { [CIP, KP] }> = ci_off_w_1d
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let k_off_w: Tile<i32, { [CIP, KP] }> = k_iota
+            .reshape(const_shape![1, KP])
+            .broadcast(const_shape![CIP, KP]);
+        let co_base: i32 = co * CI * K;
+        let co_base_1: Tile<i32, { [CIP] }> = co_base.broadcast(const_shape![CIP]);
+        let co_base_t: Tile<i32, { [CIP, KP] }> = co_base_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let w_offs: Tile<i32, { [CIP, KP] }> = co_base_t + ci_off_w + k_off_w;
+
+        // The cuTile auto-promotion of scalar `padding_value` to a multi-rank
+        // tile is broken — it emits `reshape: tile<f32> -> tile<1xf32>` then
+        // `broadcast: tile<1xf32> -> tile<NxMxf32>`, which fails the verifier
+        // ("source/result must have same rank").  Workaround: clamp invalid
+        // offsets to a known-good index (0) so the gather is safe, load with
+        // no mask/padding, then `select` invalid lanes to 0 post-load.
+        let zero_off: Tile<i32, { [CIP, KP] }> = constant(0i32, const_shape![CIP, KP]);
+        let safe_w_offs: Tile<i32, { [CIP, KP] }> = select(pad_ok, w_offs, zero_off);
+        let w_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(weight_ptr);
+        let w_base_1: PointerTile<*mut f32, { [1] }> = w_base.reshape(const_shape![1]);
+        let w_base_11: PointerTile<*mut f32, { [1, 1] }> = w_base_1.reshape(const_shape![1, 1]);
+        let w_base_2d: PointerTile<*mut f32, { [CIP, KP] }> =
+            w_base_11.broadcast(const_shape![CIP, KP]);
+        let w_ptrs: PointerTile<*mut f32, { [CIP, KP] }> = w_base_2d.offset_tile(safe_w_offs);
+        let (w_tile_raw, _wtok): (Tile<f32, { [CIP, KP] }>, Token) =
+            load_ptr_tko(w_ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_w: Tile<f32, { [CIP, KP] }> = constant(0.0f32, const_shape![CIP, KP]);
+        let w_tile: Tile<f32, { [CIP, KP] }> = select(pad_ok, w_tile_raw, zero_f_w);
 
         // Per-element input offsets: n*CI*L + ci*L + (l_out*stride - pad + k).
         let il_start: i32 = l_out * stride - padding;
         let base_off: i32 = n * CI * l_in;
 
-        let ci_iota: Tile<i32, { [CI] }> = iota(const_shape![CI]);
-        let l_t_ci: Tile<i32, { [CI] }> = l_in.broadcast(const_shape![CI]);
-        let ci_off_1d: Tile<i32, { [CI] }> = ci_iota * l_t_ci;
-        let ci_off: Tile<i32, { [CI, K] }> = ci_off_1d
-            .reshape(const_shape![CI, 1])
-            .broadcast(const_shape![CI, K]);
+        let l_t_ci: Tile<i32, { [CIP] }> = l_in.broadcast(const_shape![CIP]);
+        let ci_off_1d: Tile<i32, { [CIP] }> = ci_iota * l_t_ci;
+        let ci_off: Tile<i32, { [CIP, KP] }> = ci_off_1d
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
 
-        let k_iota: Tile<i32, { [K] }> = iota(const_shape![K]);
-        let il_start_t: Tile<i32, { [K] }> = il_start.broadcast(const_shape![K]);
-        let il_1d: Tile<i32, { [K] }> = k_iota + il_start_t;
-        let il_2d: Tile<i32, { [CI, K] }> = il_1d
-            .reshape(const_shape![1, K])
-            .broadcast(const_shape![CI, K]);
+        let il_start_t: Tile<i32, { [KP] }> = il_start.broadcast(const_shape![KP]);
+        let il_1d: Tile<i32, { [KP] }> = k_iota + il_start_t;
+        let il_2d: Tile<i32, { [CIP, KP] }> = il_1d
+            .reshape(const_shape![1, KP])
+            .broadcast(const_shape![CIP, KP]);
 
-        let base_off_t: Tile<i32, { [CI, K] }> = base_off.broadcast(const_shape![CI, K]);
-        let offs: Tile<i32, { [CI, K] }> = base_off_t + ci_off + il_2d;
+        let base_off_1: Tile<i32, { [CIP] }> = base_off.broadcast(const_shape![CIP]);
+        let base_off_t: Tile<i32, { [CIP, KP] }> = base_off_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let offs: Tile<i32, { [CIP, KP] }> = base_off_t + ci_off + il_2d;
 
-        // Mask: per-column input l position must be in [0, L).
-        let zero_ck: Tile<i32, { [CI, K] }> = constant(0i32, const_shape![CI, K]);
-        let l_t_ck: Tile<i32, { [CI, K] }> = l_in.broadcast(const_shape![CI, K]);
-        let mask: Tile<bool, { [CI, K] }> = ge_tile(il_2d, zero_ck) & lt_tile(il_2d, l_t_ck);
+        // Input mask: pad bounds AND il ∈ [0, L).
+        let zero_ck: Tile<i32, { [CIP, KP] }> = constant(0i32, const_shape![CIP, KP]);
+        let l_in_1: Tile<i32, { [CIP] }> = l_in.broadcast(const_shape![CIP]);
+        let l_t_ck: Tile<i32, { [CIP, KP] }> = l_in_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KP]);
+        let l_ok: Tile<bool, { [CIP, KP] }> = ge_tile(il_2d, zero_ck) & lt_tile(il_2d, l_t_ck);
+        let inp_mask: Tile<bool, { [CIP, KP] }> = pad_ok & l_ok;
 
+        // Same padding-broadcast workaround as for the weight gather above.
+        let safe_offs: Tile<i32, { [CIP, KP] }> = select(inp_mask, offs, zero_ck);
         let base: PointerTile<*mut f32, { [] }> = pointer_to_tile(inp_ptr);
-        let base_2d: PointerTile<*mut f32, { [CI, K] }> = base
-            .reshape(const_shape![1, 1])
-            .broadcast(const_shape![CI, K]);
-        let ptrs: PointerTile<*mut f32, { [CI, K] }> = base_2d.offset_tile(offs);
+        let base_1: PointerTile<*mut f32, { [1] }> = base.reshape(const_shape![1]);
+        let base_11: PointerTile<*mut f32, { [1, 1] }> = base_1.reshape(const_shape![1, 1]);
+        let base_2d: PointerTile<*mut f32, { [CIP, KP] }> =
+            base_11.broadcast(const_shape![CIP, KP]);
+        let ptrs: PointerTile<*mut f32, { [CIP, KP] }> = base_2d.offset_tile(safe_offs);
 
-        let (inp_tile, _tok): (Tile<f32, { [CI, K] }>, Token) =
-            load_ptr_tko(ptrs, "relaxed", "device", Some(mask), Some(0.0f32), None, None);
+        let (inp_tile_raw, _tok): (Tile<f32, { [CIP, KP] }>, Token) =
+            load_ptr_tko(ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_i: Tile<f32, { [CIP, KP] }> = constant(0.0f32, const_shape![CIP, KP]);
+        let inp_tile: Tile<f32, { [CIP, KP] }> = select(inp_mask, inp_tile_raw, zero_f_i);
 
-        let prod: Tile<f32, { [CI, K] }> = inp_tile * w_tile;
-        let r1: Tile<f32, { [CI] }> = reduce_sum(prod, 1i32);
+        let prod: Tile<f32, { [CIP, KP] }> = inp_tile * w_tile;
+        let r1: Tile<f32, { [CIP] }> = reduce_sum(prod, 1i32);
         let r2: Tile<f32, { [] }> = reduce_sum(r1, 0i32);
         out.store(r2.reshape(const_shape![1, 1, 1]));
     }
@@ -142,7 +222,10 @@ pub mod conv_kernels {
             .broadcast(const_shape![CO, K]);
 
         let ci_off_scalar: i32 = ci * K;
-        let ci_off_t: Tile<i32, { [CO, K] }> = ci_off_scalar.broadcast(const_shape![CO, K]);
+        let ci_off_1: Tile<i32, { [CO] }> = ci_off_scalar.broadcast(const_shape![CO]);
+        let ci_off_t: Tile<i32, { [CO, K] }> = ci_off_1
+            .reshape(const_shape![CO, 1])
+            .broadcast(const_shape![CO, K]);
 
         let k_iota: Tile<i32, { [K] }> = iota(const_shape![K]);
         let k_off: Tile<i32, { [CO, K] }> = k_iota
@@ -152,9 +235,9 @@ pub mod conv_kernels {
         let w_offs: Tile<i32, { [CO, K] }> = co_off + ci_off_t + k_off;
 
         let w_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(weight_ptr);
-        let w_base_2d: PointerTile<*mut f32, { [CO, K] }> = w_base
-            .reshape(const_shape![1, 1])
-            .broadcast(const_shape![CO, K]);
+        let w_base_1: PointerTile<*mut f32, { [1] }> = w_base.reshape(const_shape![1]);
+        let w_base_11: PointerTile<*mut f32, { [1, 1] }> = w_base_1.reshape(const_shape![1, 1]);
+        let w_base_2d: PointerTile<*mut f32, { [CO, K] }> = w_base_11.broadcast(const_shape![CO, K]);
         let w_ptrs: PointerTile<*mut f32, { [CO, K] }> = w_base_2d.offset_tile(w_offs);
         let (w_tile, _wtok): (Tile<f32, { [CO, K] }>, Token) =
             load_ptr_tko(w_ptrs, "relaxed", "device", None, None, None, None);
@@ -181,7 +264,10 @@ pub mod conv_kernels {
 
         // dout offsets per (co, k): n*(CO*L_out) + co*L_out + ol_div(k).
         let n_co_lout: i32 = n * CO * l_out;
-        let n_co_lout_t: Tile<i32, { [CO, K] }> = n_co_lout.broadcast(const_shape![CO, K]);
+        let n_co_lout_1: Tile<i32, { [CO] }> = n_co_lout.broadcast(const_shape![CO]);
+        let n_co_lout_t: Tile<i32, { [CO, K] }> = n_co_lout_1
+            .reshape(const_shape![CO, 1])
+            .broadcast(const_shape![CO, K]);
         let lout_t_co: Tile<i32, { [CO] }> = l_out.broadcast(const_shape![CO]);
         let co_lout_1d: Tile<i32, { [CO] }> = co_iota * lout_t_co;
         let co_lout: Tile<i32, { [CO, K] }> = co_lout_1d
@@ -192,13 +278,19 @@ pub mod conv_kernels {
             .broadcast(const_shape![CO, K]);
         let d_offs: Tile<i32, { [CO, K] }> = n_co_lout_t + co_lout + ol_col;
 
+        // cuTile compiler bug workaround: clamp invalid offsets and select
+        // post-load (see conv1d_forward for the full explanation).
+        let zero_off_d: Tile<i32, { [CO, K] }> = constant(0i32, const_shape![CO, K]);
+        let safe_d_offs: Tile<i32, { [CO, K] }> = select(mask, d_offs, zero_off_d);
         let d_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(dout_ptr);
-        let d_base_2d: PointerTile<*mut f32, { [CO, K] }> = d_base
-            .reshape(const_shape![1, 1])
-            .broadcast(const_shape![CO, K]);
-        let d_ptrs: PointerTile<*mut f32, { [CO, K] }> = d_base_2d.offset_tile(d_offs);
-        let (d_tile, _dtok): (Tile<f32, { [CO, K] }>, Token) =
-            load_ptr_tko(d_ptrs, "relaxed", "device", Some(mask), Some(0.0f32), None, None);
+        let d_base_1: PointerTile<*mut f32, { [1] }> = d_base.reshape(const_shape![1]);
+        let d_base_11: PointerTile<*mut f32, { [1, 1] }> = d_base_1.reshape(const_shape![1, 1]);
+        let d_base_2d: PointerTile<*mut f32, { [CO, K] }> = d_base_11.broadcast(const_shape![CO, K]);
+        let d_ptrs: PointerTile<*mut f32, { [CO, K] }> = d_base_2d.offset_tile(safe_d_offs);
+        let (d_tile_raw, _dtok): (Tile<f32, { [CO, K] }>, Token) =
+            load_ptr_tko(d_ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_d: Tile<f32, { [CO, K] }> = constant(0.0f32, const_shape![CO, K]);
+        let d_tile: Tile<f32, { [CO, K] }> = select(mask, d_tile_raw, zero_f_d);
 
         let prod: Tile<f32, { [CO, K] }> = d_tile * w_tile;
         let r1: Tile<f32, { [CO] }> = reduce_sum(prod, 1i32);
@@ -269,9 +361,8 @@ pub mod conv_kernels {
                 let d_offs: Tile<i32, { [BL] }> = d_base_t + ol_pos;
 
                 let d_base_ptr: PointerTile<*mut f32, { [] }> = pointer_to_tile(dout_ptr);
-                let d_base_bl: PointerTile<*mut f32, { [BL] }> = d_base_ptr
-                    .reshape(const_shape![1])
-                    .broadcast(const_shape![BL]);
+                let d_base_1: PointerTile<*mut f32, { [1] }> = d_base_ptr.reshape(const_shape![1]);
+                let d_base_bl: PointerTile<*mut f32, { [BL] }> = d_base_1.broadcast(const_shape![BL]);
                 let d_ptrs: PointerTile<*mut f32, { [BL] }> = d_base_bl.offset_tile(d_offs);
                 let (d_tile, _dt): (Tile<f32, { [BL] }>, Token) = load_ptr_tko(
                     d_ptrs,
@@ -289,9 +380,8 @@ pub mod conv_kernels {
                 let i_offs: Tile<i32, { [BL] }> = i_base_t + il_pos;
 
                 let i_base_ptr: PointerTile<*mut f32, { [] }> = pointer_to_tile(inp_ptr);
-                let i_base_bl: PointerTile<*mut f32, { [BL] }> = i_base_ptr
-                    .reshape(const_shape![1])
-                    .broadcast(const_shape![BL]);
+                let i_base_1: PointerTile<*mut f32, { [1] }> = i_base_ptr.reshape(const_shape![1]);
+                let i_base_bl: PointerTile<*mut f32, { [BL] }> = i_base_1.broadcast(const_shape![BL]);
                 let i_ptrs: PointerTile<*mut f32, { [BL] }> = i_base_bl.offset_tile(i_offs);
                 let (i_tile, _it): (Tile<f32, { [BL] }>, Token) = load_ptr_tko(
                     i_ptrs,
@@ -325,14 +415,21 @@ pub mod conv_kernels {
     ///                                     * weight[co, ci, kh, kw]
     /// ```
     ///
-    /// Gathers a `[CI, KH*KW]` pointer tile over the input window.  We
-    /// flatten the `(kh, kw)` axes into a single `KHW = KH*KW` axis for
-    /// the gather, then reshape the weight tile to match.
+    /// Caller passes `CIP/KHP/KWP = next_pow2(CI/KH/KW)` to satisfy cuTile's
+    /// pow2 tile-dim requirement; lanes with `ci ≥ CI`, `kh ≥ KH`, or
+    /// `kw ≥ KW` are masked off.
     #[cutile::entry()]
-    pub unsafe fn conv2d_forward<const CI: i32, const KH: i32, const KW: i32>(
-        out: &mut Tensor<f32, { [1, 1, 1, 1] }>,
+    pub unsafe fn conv2d_forward<
+        const CI: i32,
+        const KH: i32,
+        const KW: i32,
+        const CIP: i32,
+        const KHP: i32,
+        const KWP: i32,
+    >(
+        out: &mut Tensor<f32, { [1, 1, 1] }>,
         inp_ptr: *mut f32,
-        weight: &Tensor<f32, { [-1, -1, -1, -1] }>,
+        weight_ptr: *mut f32,
         c_out: i32,
         h_in: i32,
         w_in: i32,
@@ -346,10 +443,87 @@ pub mod conv_kernels {
         let oh: i32 = pid.1;
         let ow: i32 = pid.2;
 
-        let w_part: Partition<f32, { [1, CI, KH, KW] }> =
-            weight.partition(const_shape![1, CI, KH, KW]);
-        let w_tile_4d: Tile<f32, { [1, CI, KH, KW] }> = w_part.load([co, 0i32, 0i32, 0i32]);
-        let w_tile: Tile<f32, { [CI, KH, KW] }> = w_tile_4d.reshape(const_shape![CI, KH, KW]);
+        // Padded iotas.
+        let ci_iota: Tile<i32, { [CIP] }> = iota(const_shape![CIP]);
+        let kh_iota: Tile<i32, { [KHP] }> = iota(const_shape![KHP]);
+        let kw_iota: Tile<i32, { [KWP] }> = iota(const_shape![KWP]);
+
+        // Pad mask: ci < CI && kh < KH && kw < KW (lanes outside contribute 0).
+        let ci_lim: i32 = CI;
+        let kh_lim: i32 = KH;
+        let kw_lim: i32 = KW;
+        let ci_iota_3d: Tile<i32, { [CIP, KHP, KWP] }> = ci_iota
+            .reshape(const_shape![CIP, 1, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let ci_lim_1: Tile<i32, { [CIP] }> = ci_lim.broadcast(const_shape![CIP]);
+        let ci_lim_2: Tile<i32, { [CIP, KHP] }> = ci_lim_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KHP]);
+        let ci_lim_3d: Tile<i32, { [CIP, KHP, KWP] }> = ci_lim_2
+            .reshape(const_shape![CIP, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let ci_pad_ok: Tile<bool, { [CIP, KHP, KWP] }> = lt_tile(ci_iota_3d, ci_lim_3d);
+
+        let kh_iota_3d: Tile<i32, { [CIP, KHP, KWP] }> = kh_iota
+            .reshape(const_shape![1, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let kh_lim_1: Tile<i32, { [KHP] }> = kh_lim.broadcast(const_shape![KHP]);
+        let kh_lim_3d: Tile<i32, { [CIP, KHP, KWP] }> = kh_lim_1
+            .reshape(const_shape![1, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let kh_pad_ok: Tile<bool, { [CIP, KHP, KWP] }> = lt_tile(kh_iota_3d, kh_lim_3d);
+
+        let kw_iota_3d: Tile<i32, { [CIP, KHP, KWP] }> = kw_iota
+            .reshape(const_shape![1, 1, KWP])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let kw_lim_1: Tile<i32, { [KWP] }> = kw_lim.broadcast(const_shape![KWP]);
+        let kw_lim_3d: Tile<i32, { [CIP, KHP, KWP] }> = kw_lim_1
+            .reshape(const_shape![1, 1, KWP])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let kw_pad_ok: Tile<bool, { [CIP, KHP, KWP] }> = lt_tile(kw_iota_3d, kw_lim_3d);
+
+        let pad_ok: Tile<bool, { [CIP, KHP, KWP] }> = ci_pad_ok & kh_pad_ok & kw_pad_ok;
+
+        // Weight gather: weight[co, ci, kh, kw] at co*CI*KH*KW + ci*KH*KW + kh*KW + kw.
+        let khkw_const: i32 = KH * KW;
+        let kw_const: i32 = KW;
+        let khkw_t_ci: Tile<i32, { [CIP] }> = khkw_const.broadcast(const_shape![CIP]);
+        let ci_off_w_1d: Tile<i32, { [CIP] }> = ci_iota * khkw_t_ci;
+        let ci_off_w: Tile<i32, { [CIP, KHP, KWP] }> = ci_off_w_1d
+            .reshape(const_shape![CIP, 1, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let kw_t_kh_w: Tile<i32, { [KHP] }> = kw_const.broadcast(const_shape![KHP]);
+        let kh_w_1d: Tile<i32, { [KHP] }> = kh_iota * kw_t_kh_w;
+        let kh_w_off: Tile<i32, { [CIP, KHP, KWP] }> = kh_w_1d
+            .reshape(const_shape![1, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let co_base: i32 = co * CI * KH * KW;
+        let co_base_1: Tile<i32, { [CIP] }> = co_base.broadcast(const_shape![CIP]);
+        let co_base_2: Tile<i32, { [CIP, KHP] }> = co_base_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KHP]);
+        let co_base_t: Tile<i32, { [CIP, KHP, KWP] }> = co_base_2
+            .reshape(const_shape![CIP, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let w_offs: Tile<i32, { [CIP, KHP, KWP] }> = co_base_t + ci_off_w + kh_w_off + kw_iota_3d;
+
+        // cuTile compiler bug workaround (see conv1d_forward): clamp invalid offsets,
+        // load with no mask/padding, then `select` post-load.
+        let zero_chw_w: Tile<i32, { [CIP, KHP, KWP] }> = constant(0i32, const_shape![CIP, KHP, KWP]);
+        let safe_w_offs: Tile<i32, { [CIP, KHP, KWP] }> = select(pad_ok, w_offs, zero_chw_w);
+        let w_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(weight_ptr);
+        let w_base_1: PointerTile<*mut f32, { [1] }> = w_base.reshape(const_shape![1]);
+        let w_base_11: PointerTile<*mut f32, { [1, 1] }> = w_base_1.reshape(const_shape![1, 1]);
+        let w_base_111: PointerTile<*mut f32, { [1, 1, 1] }> =
+            w_base_11.reshape(const_shape![1, 1, 1]);
+        let w_base_3d: PointerTile<*mut f32, { [CIP, KHP, KWP] }> =
+            w_base_111.broadcast(const_shape![CIP, KHP, KWP]);
+        let w_ptrs: PointerTile<*mut f32, { [CIP, KHP, KWP] }> = w_base_3d.offset_tile(safe_w_offs);
+        let (w_tile_raw, _wtok): (Tile<f32, { [CIP, KHP, KWP] }>, Token) =
+            load_ptr_tko(w_ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_chw_w: Tile<f32, { [CIP, KHP, KWP] }> =
+            constant(0.0f32, const_shape![CIP, KHP, KWP]);
+        let w_tile: Tile<f32, { [CIP, KHP, KWP] }> = select(pad_ok, w_tile_raw, zero_f_chw_w);
 
         let ih_start: i32 = oh * stride - padding;
         let iw_start: i32 = ow * stride - padding;
@@ -357,53 +531,74 @@ pub mod conv_kernels {
         let hw: i32 = h_in * w_in;
 
         // Per-(ci, kh, kw) offsets: base + ci*H*W + (ih_start+kh)*W + (iw_start+kw).
-        let ci_iota: Tile<i32, { [CI] }> = iota(const_shape![CI]);
-        let hw_t_ci: Tile<i32, { [CI] }> = hw.broadcast(const_shape![CI]);
-        let ci_off_1d: Tile<i32, { [CI] }> = ci_iota * hw_t_ci;
-        let ci_off: Tile<i32, { [CI, KH, KW] }> = ci_off_1d
-            .reshape(const_shape![CI, 1, 1])
-            .broadcast(const_shape![CI, KH, KW]);
+        let hw_t_ci: Tile<i32, { [CIP] }> = hw.broadcast(const_shape![CIP]);
+        let ci_off_1d: Tile<i32, { [CIP] }> = ci_iota * hw_t_ci;
+        let ci_off: Tile<i32, { [CIP, KHP, KWP] }> = ci_off_1d
+            .reshape(const_shape![CIP, 1, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
 
-        let kh_iota: Tile<i32, { [KH] }> = iota(const_shape![KH]);
-        let ih_start_t: Tile<i32, { [KH] }> = ih_start.broadcast(const_shape![KH]);
-        let ih_1d: Tile<i32, { [KH] }> = kh_iota + ih_start_t;
-        let ih_3d: Tile<i32, { [CI, KH, KW] }> = ih_1d
-            .reshape(const_shape![1, KH, 1])
-            .broadcast(const_shape![CI, KH, KW]);
-        let w_in_t_chw: Tile<i32, { [CI, KH, KW] }> = w_in.broadcast(const_shape![CI, KH, KW]);
-        let ih_row: Tile<i32, { [CI, KH, KW] }> = ih_3d * w_in_t_chw;
+        let ih_start_t: Tile<i32, { [KHP] }> = ih_start.broadcast(const_shape![KHP]);
+        let ih_1d: Tile<i32, { [KHP] }> = kh_iota + ih_start_t;
+        let ih_3d: Tile<i32, { [CIP, KHP, KWP] }> = ih_1d
+            .reshape(const_shape![1, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let w_in_1_ci: Tile<i32, { [CIP] }> = w_in.broadcast(const_shape![CIP]);
+        let w_in_2_ckh: Tile<i32, { [CIP, KHP] }> = w_in_1_ci
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KHP]);
+        let w_in_t_chw: Tile<i32, { [CIP, KHP, KWP] }> = w_in_2_ckh
+            .reshape(const_shape![CIP, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let ih_row: Tile<i32, { [CIP, KHP, KWP] }> = ih_3d * w_in_t_chw;
 
-        let kw_iota: Tile<i32, { [KW] }> = iota(const_shape![KW]);
-        let iw_start_t: Tile<i32, { [KW] }> = iw_start.broadcast(const_shape![KW]);
-        let iw_1d: Tile<i32, { [KW] }> = kw_iota + iw_start_t;
-        let iw_3d: Tile<i32, { [CI, KH, KW] }> = iw_1d
-            .reshape(const_shape![1, 1, KW])
-            .broadcast(const_shape![CI, KH, KW]);
+        let iw_start_t: Tile<i32, { [KWP] }> = iw_start.broadcast(const_shape![KWP]);
+        let iw_1d: Tile<i32, { [KWP] }> = kw_iota + iw_start_t;
+        let iw_3d: Tile<i32, { [CIP, KHP, KWP] }> = iw_1d
+            .reshape(const_shape![1, 1, KWP])
+            .broadcast(const_shape![CIP, KHP, KWP]);
 
-        let base_off_t: Tile<i32, { [CI, KH, KW] }> =
-            base_off.broadcast(const_shape![CI, KH, KW]);
-        let offs: Tile<i32, { [CI, KH, KW] }> = base_off_t + ci_off + ih_row + iw_3d;
+        let base_off_1: Tile<i32, { [CIP] }> = base_off.broadcast(const_shape![CIP]);
+        let base_off_2: Tile<i32, { [CIP, KHP] }> = base_off_1
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KHP]);
+        let base_off_t: Tile<i32, { [CIP, KHP, KWP] }> = base_off_2
+            .reshape(const_shape![CIP, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let offs: Tile<i32, { [CIP, KHP, KWP] }> = base_off_t + ci_off + ih_row + iw_3d;
 
-        // Mask: (ih, iw) ∈ [0, H) × [0, W).
-        let zero_chw: Tile<i32, { [CI, KH, KW] }> = constant(0i32, const_shape![CI, KH, KW]);
-        let h_t_chw: Tile<i32, { [CI, KH, KW] }> = h_in.broadcast(const_shape![CI, KH, KW]);
-        let h_ok: Tile<bool, { [CI, KH, KW] }> = ge_tile(ih_3d, zero_chw) & lt_tile(ih_3d, h_t_chw);
-        let w_ok: Tile<bool, { [CI, KH, KW] }> = ge_tile(iw_3d, zero_chw) & lt_tile(iw_3d, w_in_t_chw);
-        let mask: Tile<bool, { [CI, KH, KW] }> = h_ok & w_ok;
+        // Spatial bounds: ih ∈ [0, H) AND iw ∈ [0, W), combined with pad mask.
+        let zero_chw: Tile<i32, { [CIP, KHP, KWP] }> = constant(0i32, const_shape![CIP, KHP, KWP]);
+        let h_in_1_ci: Tile<i32, { [CIP] }> = h_in.broadcast(const_shape![CIP]);
+        let h_in_2_ckh: Tile<i32, { [CIP, KHP] }> = h_in_1_ci
+            .reshape(const_shape![CIP, 1])
+            .broadcast(const_shape![CIP, KHP]);
+        let h_t_chw: Tile<i32, { [CIP, KHP, KWP] }> = h_in_2_ckh
+            .reshape(const_shape![CIP, KHP, 1])
+            .broadcast(const_shape![CIP, KHP, KWP]);
+        let h_ok: Tile<bool, { [CIP, KHP, KWP] }> = ge_tile(ih_3d, zero_chw) & lt_tile(ih_3d, h_t_chw);
+        let w_ok: Tile<bool, { [CIP, KHP, KWP] }> = ge_tile(iw_3d, zero_chw) & lt_tile(iw_3d, w_in_t_chw);
+        let inp_mask: Tile<bool, { [CIP, KHP, KWP] }> = pad_ok & h_ok & w_ok;
 
+        // cuTile compiler bug workaround.
+        let safe_offs: Tile<i32, { [CIP, KHP, KWP] }> = select(inp_mask, offs, zero_chw);
         let base: PointerTile<*mut f32, { [] }> = pointer_to_tile(inp_ptr);
-        let base_3d: PointerTile<*mut f32, { [CI, KH, KW] }> = base
-            .reshape(const_shape![1, 1, 1])
-            .broadcast(const_shape![CI, KH, KW]);
-        let ptrs: PointerTile<*mut f32, { [CI, KH, KW] }> = base_3d.offset_tile(offs);
-        let (inp_tile, _tok): (Tile<f32, { [CI, KH, KW] }>, Token) =
-            load_ptr_tko(ptrs, "relaxed", "device", Some(mask), Some(0.0f32), None, None);
+        let base_1: PointerTile<*mut f32, { [1] }> = base.reshape(const_shape![1]);
+        let base_11: PointerTile<*mut f32, { [1, 1] }> = base_1.reshape(const_shape![1, 1]);
+        let base_111: PointerTile<*mut f32, { [1, 1, 1] }> = base_11.reshape(const_shape![1, 1, 1]);
+        let base_3d: PointerTile<*mut f32, { [CIP, KHP, KWP] }> =
+            base_111.broadcast(const_shape![CIP, KHP, KWP]);
+        let ptrs: PointerTile<*mut f32, { [CIP, KHP, KWP] }> = base_3d.offset_tile(safe_offs);
+        let (inp_tile_raw, _tok): (Tile<f32, { [CIP, KHP, KWP] }>, Token) =
+            load_ptr_tko(ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_chw: Tile<f32, { [CIP, KHP, KWP] }> =
+            constant(0.0f32, const_shape![CIP, KHP, KWP]);
+        let inp_tile: Tile<f32, { [CIP, KHP, KWP] }> = select(inp_mask, inp_tile_raw, zero_f_chw);
 
-        let prod: Tile<f32, { [CI, KH, KW] }> = inp_tile * w_tile;
-        let r1: Tile<f32, { [CI, KH] }> = reduce_sum(prod, 2i32);
-        let r2: Tile<f32, { [CI] }> = reduce_sum(r1, 1i32);
+        let prod: Tile<f32, { [CIP, KHP, KWP] }> = inp_tile * w_tile;
+        let r1: Tile<f32, { [CIP, KHP] }> = reduce_sum(prod, 2i32);
+        let r2: Tile<f32, { [CIP] }> = reduce_sum(r1, 1i32);
         let r3: Tile<f32, { [] }> = reduce_sum(r2, 0i32);
-        out.store(r3.reshape(const_shape![1, 1, 1, 1]));
+        out.store(r3.reshape(const_shape![1, 1, 1]));
     }
 
     /// Per input element `(n, ci, ih, iw)` — grid is
@@ -418,7 +613,7 @@ pub mod conv_kernels {
     /// ```
     #[cutile::entry()]
     pub unsafe fn conv2d_backward_input<const CO: i32, const KH: i32, const KW: i32>(
-        dinp: &mut Tensor<f32, { [1, 1, 1, 1] }>,
+        dinp: &mut Tensor<f32, { [1, 1, 1] }>,
         dout_ptr: *mut f32,
         weight_ptr: *mut f32,
         c_in: i32,
@@ -445,8 +640,13 @@ pub mod conv_kernels {
             .broadcast(const_shape![CO, KH, KW]);
 
         let ci_off_scalar: i32 = ci * khkw;
-        let ci_off_t: Tile<i32, { [CO, KH, KW] }> =
-            ci_off_scalar.broadcast(const_shape![CO, KH, KW]);
+        let ci_off_1: Tile<i32, { [CO] }> = ci_off_scalar.broadcast(const_shape![CO]);
+        let ci_off_2: Tile<i32, { [CO, KH] }> = ci_off_1
+            .reshape(const_shape![CO, 1])
+            .broadcast(const_shape![CO, KH]);
+        let ci_off_t: Tile<i32, { [CO, KH, KW] }> = ci_off_2
+            .reshape(const_shape![CO, KH, 1])
+            .broadcast(const_shape![CO, KH, KW]);
 
         let kh_iota: Tile<i32, { [KH] }> = iota(const_shape![KH]);
         let kw_const: i32 = KW;
@@ -464,9 +664,12 @@ pub mod conv_kernels {
         let w_offs: Tile<i32, { [CO, KH, KW] }> = co_off + ci_off_t + kh_w_off + kw_off;
 
         let w_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(weight_ptr);
-        let w_base_3d: PointerTile<*mut f32, { [CO, KH, KW] }> = w_base
-            .reshape(const_shape![1, 1, 1])
-            .broadcast(const_shape![CO, KH, KW]);
+        let w_base_1: PointerTile<*mut f32, { [1] }> = w_base.reshape(const_shape![1]);
+        let w_base_11: PointerTile<*mut f32, { [1, 1] }> = w_base_1.reshape(const_shape![1, 1]);
+        let w_base_111: PointerTile<*mut f32, { [1, 1, 1] }> =
+            w_base_11.reshape(const_shape![1, 1, 1]);
+        let w_base_3d: PointerTile<*mut f32, { [CO, KH, KW] }> =
+            w_base_111.broadcast(const_shape![CO, KH, KW]);
         let w_ptrs: PointerTile<*mut f32, { [CO, KH, KW] }> = w_base_3d.offset_tile(w_offs);
         let (w_tile, _wtok): (Tile<f32, { [CO, KH, KW] }>, Token) =
             load_ptr_tko(w_ptrs, "relaxed", "device", None, None, None, None);
@@ -510,7 +713,13 @@ pub mod conv_kernels {
         //                              + oh_div*W_out + ow_div.
         let hwout: i32 = h_out * w_out;
         let n_cohw: i32 = n * CO * hwout;
-        let n_cohw_t: Tile<i32, { [CO, KH, KW] }> = n_cohw.broadcast(const_shape![CO, KH, KW]);
+        let n_cohw_1: Tile<i32, { [CO] }> = n_cohw.broadcast(const_shape![CO]);
+        let n_cohw_2: Tile<i32, { [CO, KH] }> = n_cohw_1
+            .reshape(const_shape![CO, 1])
+            .broadcast(const_shape![CO, KH]);
+        let n_cohw_t: Tile<i32, { [CO, KH, KW] }> = n_cohw_2
+            .reshape(const_shape![CO, KH, 1])
+            .broadcast(const_shape![CO, KH, KW]);
         let hwout_t_co: Tile<i32, { [CO] }> = hwout.broadcast(const_shape![CO]);
         let co_hw_1d: Tile<i32, { [CO] }> = co_iota * hwout_t_co;
         let co_hw: Tile<i32, { [CO, KH, KW] }> = co_hw_1d
@@ -529,19 +738,27 @@ pub mod conv_kernels {
 
         let d_offs: Tile<i32, { [CO, KH, KW] }> = n_cohw_t + co_hw + oh_row_3d + ow_col_3d;
 
+        // cuTile compiler bug workaround (see conv1d_forward).
+        let zero_off_d: Tile<i32, { [CO, KH, KW] }> = constant(0i32, const_shape![CO, KH, KW]);
+        let safe_d_offs: Tile<i32, { [CO, KH, KW] }> = select(mask, d_offs, zero_off_d);
         let d_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(dout_ptr);
-        let d_base_3d: PointerTile<*mut f32, { [CO, KH, KW] }> = d_base
-            .reshape(const_shape![1, 1, 1])
-            .broadcast(const_shape![CO, KH, KW]);
-        let d_ptrs: PointerTile<*mut f32, { [CO, KH, KW] }> = d_base_3d.offset_tile(d_offs);
-        let (d_tile, _dtok): (Tile<f32, { [CO, KH, KW] }>, Token) =
-            load_ptr_tko(d_ptrs, "relaxed", "device", Some(mask), Some(0.0f32), None, None);
+        let d_base_1: PointerTile<*mut f32, { [1] }> = d_base.reshape(const_shape![1]);
+        let d_base_11: PointerTile<*mut f32, { [1, 1] }> = d_base_1.reshape(const_shape![1, 1]);
+        let d_base_111: PointerTile<*mut f32, { [1, 1, 1] }> =
+            d_base_11.reshape(const_shape![1, 1, 1]);
+        let d_base_3d: PointerTile<*mut f32, { [CO, KH, KW] }> =
+            d_base_111.broadcast(const_shape![CO, KH, KW]);
+        let d_ptrs: PointerTile<*mut f32, { [CO, KH, KW] }> = d_base_3d.offset_tile(safe_d_offs);
+        let (d_tile_raw, _dtok): (Tile<f32, { [CO, KH, KW] }>, Token) =
+            load_ptr_tko(d_ptrs, "relaxed", "device", None, None, None, None);
+        let zero_f_d: Tile<f32, { [CO, KH, KW] }> = constant(0.0f32, const_shape![CO, KH, KW]);
+        let d_tile: Tile<f32, { [CO, KH, KW] }> = select(mask, d_tile_raw, zero_f_d);
 
         let prod: Tile<f32, { [CO, KH, KW] }> = d_tile * w_tile;
         let r1: Tile<f32, { [CO, KH] }> = reduce_sum(prod, 2i32);
         let r2: Tile<f32, { [CO] }> = reduce_sum(r1, 1i32);
         let r3: Tile<f32, { [] }> = reduce_sum(r2, 0i32);
-        dinp.store(r3.reshape(const_shape![1, 1, 1, 1]));
+        dinp.store(r3.reshape(const_shape![1, 1, 1]));
     }
 
     /// Per weight element `(co, ci, kh, kw)` — grid is
@@ -556,7 +773,7 @@ pub mod conv_kernels {
     /// `ow`.  Mask handles tail of last tile + `ih/iw` input bounds.
     #[cutile::entry()]
     pub unsafe fn conv2d_backward_weight<const BW: i32>(
-        dweight: &mut Tensor<f32, { [1, 1, 1, 1] }>,
+        dweight: &mut Tensor<f32, { [1, 1, 1] }>,
         dout_ptr: *mut f32,
         inp_ptr: *mut f32,
         n_total: i32,
@@ -593,7 +810,7 @@ pub mod conv_kernels {
         for n in 0i32..n_total {
             for oh in 0i32..h_out {
                 let ih_raw: i32 = oh * stride + kh - padding;
-                if ih_raw < 0 || ih_raw >= h_in {
+                if ih_raw < 0i32 || ih_raw >= h_in {
                     continue;
                 }
                 for j in 0i32..num_w_tiles {
@@ -614,9 +831,8 @@ pub mod conv_kernels {
                     let d_offs: Tile<i32, { [BW] }> = d_row_t + ow_pos;
 
                     let d_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(dout_ptr);
-                    let d_base_bw: PointerTile<*mut f32, { [BW] }> = d_base
-                        .reshape(const_shape![1])
-                        .broadcast(const_shape![BW]);
+                    let d_base_1: PointerTile<*mut f32, { [1] }> = d_base.reshape(const_shape![1]);
+                    let d_base_bw: PointerTile<*mut f32, { [BW] }> = d_base_1.broadcast(const_shape![BW]);
                     let d_ptrs: PointerTile<*mut f32, { [BW] }> = d_base_bw.offset_tile(d_offs);
                     let (d_tile, _dt): (Tile<f32, { [BW] }>, Token) = load_ptr_tko(
                         d_ptrs,
@@ -634,9 +850,8 @@ pub mod conv_kernels {
                     let i_offs: Tile<i32, { [BW] }> = i_row_t + iw_pos;
 
                     let i_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(inp_ptr);
-                    let i_base_bw: PointerTile<*mut f32, { [BW] }> = i_base
-                        .reshape(const_shape![1])
-                        .broadcast(const_shape![BW]);
+                    let i_base_1: PointerTile<*mut f32, { [1] }> = i_base.reshape(const_shape![1]);
+                    let i_base_bw: PointerTile<*mut f32, { [BW] }> = i_base_1.broadcast(const_shape![BW]);
                     let i_ptrs: PointerTile<*mut f32, { [BW] }> = i_base_bw.offset_tile(i_offs);
                     let (i_tile, _it): (Tile<f32, { [BW] }>, Token) = load_ptr_tko(
                         i_ptrs,
@@ -655,7 +870,7 @@ pub mod conv_kernels {
             }
         }
 
-        dweight.store(acc.reshape(const_shape![1, 1, 1, 1]));
+        dweight.store(acc.reshape(const_shape![1, 1, 1]));
     }
 }
 

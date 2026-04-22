@@ -299,11 +299,15 @@ pub mod flash_attention_kernels {
                 .broadcast(const_shape![BN, D]);
             let kv_offs: Tile<i32, { [BN, D] }> = col_block_t + row_stride + d_off;
 
-            // dK scatter.
+            // dK scatter.  PointerTile reshape goes one rank at a time:
+            // [] → [1] → [1, 1] → broadcast to [BN, D].  A direct [] → [1, 1]
+            // reshape fails the cuTile verifier ("source/result must have same rank").
             let dk_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(dk_ptr);
-            let dk_base_2d: PointerTile<*mut f32, { [BN, D] }> = dk_base
-                .reshape(const_shape![1, 1])
-                .broadcast(const_shape![BN, D]);
+            let dk_base_1: PointerTile<*mut f32, { [1] }> = dk_base.reshape(const_shape![1]);
+            let dk_base_11: PointerTile<*mut f32, { [1, 1] }> =
+                dk_base_1.reshape(const_shape![1, 1]);
+            let dk_base_2d: PointerTile<*mut f32, { [BN, D] }> =
+                dk_base_11.broadcast(const_shape![BN, D]);
             let dk_ptrs: PointerTile<*mut f32, { [BN, D] }> = dk_base_2d.offset_tile(kv_offs);
 
             // Tail mask: guard OOB when S is not a multiple of BN.
@@ -328,9 +332,11 @@ pub mod flash_attention_kernels {
 
             // dV scatter (same offsets, different base ptr).
             let dv_base: PointerTile<*mut f32, { [] }> = pointer_to_tile(dv_ptr);
-            let dv_base_2d: PointerTile<*mut f32, { [BN, D] }> = dv_base
-                .reshape(const_shape![1, 1])
-                .broadcast(const_shape![BN, D]);
+            let dv_base_1: PointerTile<*mut f32, { [1] }> = dv_base.reshape(const_shape![1]);
+            let dv_base_11: PointerTile<*mut f32, { [1, 1] }> =
+                dv_base_1.reshape(const_shape![1, 1]);
+            let dv_base_2d: PointerTile<*mut f32, { [BN, D] }> =
+                dv_base_11.broadcast(const_shape![BN, D]);
             let dv_ptrs: PointerTile<*mut f32, { [BN, D] }> = dv_base_2d.offset_tile(kv_offs);
 
             let (_odv, _tdv): (Tile<f32, { [BN, D] }>, Token) = atomic_rmw_tko(

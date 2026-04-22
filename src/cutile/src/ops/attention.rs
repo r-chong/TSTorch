@@ -21,7 +21,6 @@ use cutile::tensor::PartitionMut;
 use cutile::tile_kernel::TileKernel;
 
 const BM_CANDIDATES: [usize; 4] = [64, 32, 16, 8];
-const BN_DEFAULT: usize = 64;
 
 fn pick_bm(s: usize) -> usize {
     for &bm in &BM_CANDIDATES {
@@ -30,6 +29,14 @@ fn pick_bm(s: usize) -> usize {
         }
     }
     1
+}
+
+/// Pick `BN` (key/value tile) that divides `s` so the partition load doesn't
+/// over-read the K/V tensor.  Without this, `S=16, BN=64` would make the kernel
+/// load 64 rows into the tile when only 16 are valid — the OOB lanes get
+/// garbage that softmax then folds into `l_i`, throwing off the result.
+fn pick_bn(s: usize) -> usize {
+    pick_bm(s)
 }
 
 fn assert_supported_d(d: usize) {
@@ -65,7 +72,7 @@ pub fn flash_attention_forward(
     let (bh, s, d) = (q_shape[0], q_shape[1], q_shape[2]);
     assert_supported_d(d);
     let bm = pick_bm(s);
-    let bn = BN_DEFAULT;
+    let bn = pick_bn(s);
 
     let rt = runtime();
     let mut out = api::zeros::<f32>(&[bh, s, d])
@@ -141,7 +148,7 @@ pub fn flash_attention_backward(
     assert_eq!(store.shape(lse), &[bh, s], "flash_attn_bw: lse shape mismatch");
 
     let bm = pick_bm(s);
-    let bn = BN_DEFAULT;
+    let bn = pick_bn(s);
     let rt = runtime();
 
     let mut dq = api::zeros::<f32>(&[bh, s, d])

@@ -15,7 +15,7 @@ use crate::kernels;
 use crate::tensor::{TensorId, TensorStore};
 use cuda_async::device_operation::DeviceOp;
 use cutile::api;
-use cutile::tensor::PartitionMut;
+use cutile::tensor::{PartitionMut, Reshape};
 use cutile::tile_kernel::TileKernel;
 
 /// `BL` for `conv1d_backward_weight` — inner reduction tile along `L_out`.
@@ -25,6 +25,18 @@ const BW_CONV2D: usize = 32;
 
 fn out_dim(in_dim: usize, k: usize, stride: usize, padding: usize) -> usize {
     (in_dim + 2 * padding).saturating_sub(k) / stride + 1
+}
+
+/// cuTile tile shapes must have power-of-two dims.  Conv reduction loops
+/// run over `CI`, `K`, `KH`, `KW` etc., which in real models are commonly
+/// 3 / 5 / 7 — we round up to the next pow2 and let the kernel mask the
+/// tail.  `next_pow2(0)` is forced to 1 to keep cuTile happy.
+fn next_pow2(n: usize) -> usize {
+    if n <= 1 {
+        1
+    } else {
+        n.next_power_of_two()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -56,17 +68,24 @@ pub fn conv1d_forward(
         let it = store.tensor(inp);
         let wt = store.tensor(weight);
         let inp_ptr = it.device_pointer();
-        let wv = wt.view(&[c_out, c_in, k]).expect("view weight");
+        let weight_ptr = wt.device_pointer();
         unsafe {
+            let ci_p = next_pow2(c_in);
+            let k_p = next_pow2(k);
             let _ = kernels::conv1d_forward(
                 (&mut out).partition([1, 1, 1]),
                 inp_ptr,
-                &wv,
+                weight_ptr,
                 l_in as i32,
                 stride as i32,
                 padding as i32,
             )
-            .generics(vec![c_in.to_string(), k.to_string()])
+            .generics(vec![
+                c_in.to_string(),
+                k.to_string(),
+                ci_p.to_string(),
+                k_p.to_string(),
+            ])
             .sync_on(&rt.stream)
             .expect("conv1d_forward kernel");
         }
@@ -192,30 +211,44 @@ pub fn conv2d_forward(
     let w_out = out_dim(w_in, kw, stride, padding);
 
     let rt = runtime();
-    let mut out = api::zeros::<f32>(&[n, c_out, h_out, w_out])
+    let nco = n * c_out;
+    let mut out_flat = api::zeros::<f32>(&[nco, h_out, w_out])
         .sync_on(&rt.stream)
         .expect("alloc out");
     {
         let it = store.tensor(inp);
         let wt = store.tensor(weight);
         let inp_ptr = it.device_pointer();
-        let wv = wt.view(&[c_out, c_in, kh, kw]).expect("view weight");
+        let weight_ptr = wt.device_pointer();
         unsafe {
+            let ci_p = next_pow2(c_in);
+            let kh_p = next_pow2(kh);
+            let kw_p = next_pow2(kw);
             let _ = kernels::conv2d_forward(
-                (&mut out).partition([1, 1, 1, 1]),
+                (&mut out_flat).partition([1, 1, 1]),
                 inp_ptr,
-                &wv,
+                weight_ptr,
                 c_out as i32,
                 h_in as i32,
                 w_in as i32,
                 stride as i32,
                 padding as i32,
             )
-            .generics(vec![c_in.to_string(), kh.to_string(), kw.to_string()])
+            .generics(vec![
+                c_in.to_string(),
+                kh.to_string(),
+                kw.to_string(),
+                ci_p.to_string(),
+                kh_p.to_string(),
+                kw_p.to_string(),
+            ])
             .sync_on(&rt.stream)
             .expect("conv2d_forward kernel");
         }
     }
+    let out = out_flat
+        .reshape(&[n, c_out, h_out, w_out])
+        .expect("reshape out");
     store.insert_tensor(out, vec![n, c_out, h_out, w_out])
 }
 
@@ -244,7 +277,8 @@ pub fn conv2d_backward_input(
     assert_eq!(w_co, c_out, "conv2d_bwi: weight C_out mismatch");
 
     let rt = runtime();
-    let mut dinp = api::zeros::<f32>(&[n, c_in, h_in, w_in])
+    let nci = n * c_in;
+    let mut dinp_flat = api::zeros::<f32>(&[nci, h_in, w_in])
         .sync_on(&rt.stream)
         .expect("alloc dinp");
     {
@@ -254,7 +288,7 @@ pub fn conv2d_backward_input(
         let weight_ptr = wt.device_pointer();
         unsafe {
             let _ = kernels::conv2d_backward_input(
-                (&mut dinp).partition([1, 1, 1, 1]),
+                (&mut dinp_flat).partition([1, 1, 1]),
                 dout_ptr,
                 weight_ptr,
                 c_in as i32,
@@ -268,6 +302,9 @@ pub fn conv2d_backward_input(
             .expect("conv2d_backward_input kernel");
         }
     }
+    let dinp = dinp_flat
+        .reshape(&[n, c_in, h_in, w_in])
+        .expect("reshape dinp");
     store.insert_tensor(dinp, vec![n, c_in, h_in, w_in])
 }
 
@@ -295,7 +332,8 @@ pub fn conv2d_backward_weight(
     assert_eq!(n, n2, "conv2d_bww: N mismatch");
 
     let rt = runtime();
-    let mut dweight = api::zeros::<f32>(&[c_out, c_in, kh, kw])
+    let coci = c_out * c_in;
+    let mut dweight_flat = api::zeros::<f32>(&[coci, kh, kw])
         .sync_on(&rt.stream)
         .expect("alloc dweight");
     {
@@ -305,7 +343,7 @@ pub fn conv2d_backward_weight(
         let inp_ptr = it.device_pointer();
         unsafe {
             let _ = kernels::conv2d_backward_weight(
-                (&mut dweight).partition([1, 1, 1, 1]),
+                (&mut dweight_flat).partition([1, 1, 1]),
                 dout_ptr,
                 inp_ptr,
                 n as i32,
@@ -323,5 +361,8 @@ pub fn conv2d_backward_weight(
             .expect("conv2d_backward_weight kernel");
         }
     }
+    let dweight = dweight_flat
+        .reshape(&[c_out, c_in, kh, kw])
+        .expect("reshape dweight");
     store.insert_tensor(dweight, vec![c_out, c_in, kh, kw])
 }
