@@ -311,7 +311,7 @@ impl GpuDevice {
     fn load_all_shaders(&mut self) {
         self.compile_shader(
             "elementwise",
-            include_str!("../shaders/elementwise.wgsl"),
+            include_str!("../../web/shaders/elementwise.wgsl"),
             &[
                 "add_f32", "sub_f32", "mul_f32", "neg_f32", "mul_scalar_f32",
                 "exp_f32", "log_f32", "div_f32", "fill_f32", "copy_f32",
@@ -321,52 +321,52 @@ impl GpuDevice {
         );
         self.compile_shader(
             "activation",
-            include_str!("../shaders/activation.wgsl"),
+            include_str!("../../web/shaders/activation.wgsl"),
             &["gelu_forward_f32", "gelu_backward_f32", "relu_forward_f32", "relu_backward_f32"],
         );
         self.compile_shader(
             "reduce",
-            include_str!("../shaders/reduce.wgsl"),
+            include_str!("../../web/shaders/reduce.wgsl"),
             &["sum_along_dim_f32", "mean_along_dim_f32", "max_along_dim_f32"],
         );
         self.compile_shader(
             "layernorm",
-            include_str!("../shaders/layernorm.wgsl"),
+            include_str!("../../web/shaders/layernorm.wgsl"),
             &["layernorm_forward_f32", "layernorm_backward_f32"],
         );
         self.compile_shader(
             "softmax",
-            include_str!("../shaders/softmax.wgsl"),
+            include_str!("../../web/shaders/softmax.wgsl"),
             &["softmax_forward_f32", "softmax_backward_f32"],
         );
         self.compile_shader(
             "cross_entropy",
-            include_str!("../shaders/cross_entropy.wgsl"),
+            include_str!("../../web/shaders/cross_entropy.wgsl"),
             &["cross_entropy_forward_f32", "cross_entropy_backward_f32"],
         );
         self.compile_shader(
             "embedding",
-            include_str!("../shaders/embedding.wgsl"),
+            include_str!("../../web/shaders/embedding.wgsl"),
             &["embedding_forward_f32", "embedding_backward_f32"],
         );
         self.compile_shader(
             "dropout",
-            include_str!("../shaders/dropout.wgsl"),
+            include_str!("../../web/shaders/dropout.wgsl"),
             &["dropout_apply_f32"],
         );
         self.compile_shader(
             "adamw",
-            include_str!("../shaders/adamw.wgsl"),
+            include_str!("../../web/shaders/adamw.wgsl"),
             &["adamw_step_f32"],
         );
         self.compile_shader(
             "grad_util",
-            include_str!("../shaders/grad_util.wgsl"),
+            include_str!("../../web/shaders/grad_util.wgsl"),
             &["grad_norm_sq_partial_f32", "grad_clip_f32"],
         );
         self.compile_shader(
             "conv",
-            include_str!("../shaders/conv.wgsl"),
+            include_str!("../../web/shaders/conv.wgsl"),
             &[
                 "conv1d_forward_f32", "conv1d_backward_input_f32", "conv1d_backward_weight_f32",
                 "conv2d_forward_f32", "conv2d_backward_input_f32", "conv2d_backward_weight_f32",
@@ -374,7 +374,7 @@ impl GpuDevice {
         );
         self.compile_shader(
             "pooling",
-            include_str!("../shaders/pooling.wgsl"),
+            include_str!("../../web/shaders/pooling.wgsl"),
             &["avgpool2d_forward_f32", "avgpool2d_backward_f32", "maxpool2d_forward_f32"],
         );
     }
